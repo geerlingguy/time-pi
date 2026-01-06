@@ -153,6 +153,7 @@ An example configuration for a slave/client node is set up in `ptp-client-node.y
   - [Time-Nuts Mailing List](http://www.leapsecond.com/time-nuts.htm) (for amateurs who are interested in precise Time & Frequency)
   - [Where does my computer get the time from?](https://dotat.at/@/2023-05-26-whence-time.html) (good overview of the sources of modern NTP + GPS time, with the history of each source)
   - [Satpulse time server architecture](https://satpulse.net/2025/05/21/time-server-architecture.html) (System clock vs PHC vs NIC, and how time is transferred internally and through PTP and NTP)
+  - [pixie Pi 5 GPS Time Server](https://github.com/josh-blake/pixie/wiki) (Guide for improving accuracy with realtime kernel, Ethernet NIC options, etc.)
 
 ## License
 
