@@ -69,7 +69,7 @@ It will read `----` until a 3D position fix is acquired (this is required for a 
 
 It usually takes 15-30s the first time to acquire a timing signal, or 3-5s if you just unplug it and plug it back in within a few minutes.
 
-If you're
+If you're not getting a timing signal, make sure you put the GPS antenna outdoors or close to a window with a clear view of the sky, and use good quality cabling. See [Mastering GPS antenna placement](https://www.worldtimesolutions.com/resources/learning/timing-knowledge-centre/mastering-gps-antenna-placement/).
 
 ## PPS Output
 
