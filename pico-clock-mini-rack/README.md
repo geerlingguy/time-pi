@@ -73,12 +73,12 @@ If you're not getting a timing signal, make sure you put the GPS antenna outdoor
 
 ## PPS Output
 
-Currently, there is no PPS output available from the Waveshare HAT.
+The Pico GPS HAT has the PPS signal routed from an unpopulated R20 resistor location to GPIO 16 (physical pin 21). If you solder a 0 ohm resistor (or in my case, this messy little bodge wire) between the two pads in location R20, you can access the PPS signal externally via the GPIO pin and internally on the Pico:
 
-I spoke to Waveshare support, and they suggested I could add on a small bodge wire to get PPS from the relevant PCB trace (which provides the pulse for the PPS LED):
+<p align="center"><img alt="Raspberry Pi Pico GPS Clock PPS R20 resistor bodge" src="/pico-clock-mini-rack/pico-gps-gpio16-pps-resistor-bodge.jpg" height="auto" width="600"></p>
 
-> The PPS LED does flash, but this signal is usually not directly exposed to the pins of the Pico HAT. If you wish to use this signal externally for verification or detection, you may need to check the schematic diagram to see if there are any relevant lines that can be connected, or consider using additional hardware circuits to lead this signal to the pin.
+I am probing it with an oscilloscope, which shows a brief pulse at 1Hz around 3v:
 
-<p align="center"><img alt="Waveshare Pico GPS HAT Schematic - PPS detail" src="/pico-clock-mini-rack/waveshare-support-schematic.png" height="auto" width="600"></p>
+<p align="center"><img alt="Raspberry Pi Pico GPS Clock PPS signal measurement on oscilloscope" src="/pico-clock-mini-rack/pico-gps-pps-oscilloscope-1hz.jpg" height="auto" width="600"></p>
 
-<p align="center"><img alt="Waveshare Pico GPS HAT - PPS resistor highlighted" src="/pico-clock-mini-rack/waveshare-support-picture-highlighted.png" height="auto" width="600"></p>
+For full details, refer to the [Pico-GPS-L76K wiki](https://www.waveshare.com/wiki/Pico-GPS-L76K), specifically, the [schematic diagram](https://files.waveshare.com/upload/7/75/Pico-GPS-L76B.pdf).
