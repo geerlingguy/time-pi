@@ -14,7 +14,7 @@ Takes in GPS (or potentially other stratum 0 time sources), spits out NTP, PTP, 
 
 To run a decent time server (with high accuracy), you need a few things:
 
-  - A computer running Linux (all the nice tooling for network time is availabe here)
+  - A computer running Linux (all the nice tooling for network time is available here)
   - A high quality time source (GPS is most commonly used these days)
   - A network adapter capable of hardware timestamping (Intel and ASIX make some good NICs for time-related applications)
 
