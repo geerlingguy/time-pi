@@ -34,6 +34,10 @@ ptp4l_version_latest: true  # Install jclark's linuxptp v4 .deb if true
 ptp4l_ptp_iface: eth1
 ptp4l_service_state: started
 ptp4l_service_enabled: true
+ptp4l_clockClass: '6'
+ptp4l_clockAccuracy: '0x21'
+ptp4l_timeTraceable: '1'
+ptp4l_timeSource: '0x20'  # GPS time source (according to IEEE 1588 protocol)
 
 ts2phc_service_state: started
 ts2phc_service_enabled: true

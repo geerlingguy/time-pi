@@ -9,5 +9,9 @@ ExecStart=/usr/sbin/ptp4l -f /etc/ptp4l.conf -i {{ ptp4l_ptp_iface }}
 Restart=always
 RestartSec=3
 
+# Configure clock accuracy settings via `pmc` after 1s.
+ExecStartPost=/usr/bin/sleep 1
+ExecStartPost=/usr/sbin/pmc -u -b 0 "SET GRANDMASTER_SETTINGS_NP clockClass {{ ptp4l_clockClass }} clockAccuracy {{ ptp4l_clockAccuracy }} offsetScaledLogVariance 0x4e5d currentUtcOffset 37 leap61 0 leap59 0 currentUtcOffsetValid 1 ptpTimescale 1 timeTraceable {{ ptp4l_timeTraceable }} frequencyTraceable 0 timeSource {{ ptp4l_timeSource }}"
+
 [Install]
 WantedBy=multi-user.target
