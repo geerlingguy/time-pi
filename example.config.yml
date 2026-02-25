@@ -54,7 +54,7 @@ ts2phc_source: 'nmea'
 ts2phc_extra_opts: >-
   --ts2phc.nmea_serialport /dev/gps-ts2phc
   --ts2phc.extts_polarity both
-  --ts2phc.pulsewidth 200000000
+  --ts2phc.pulsewidth 1000000
 
 phc2sys_service_state: started
 phc2sys_service_enabled: true
