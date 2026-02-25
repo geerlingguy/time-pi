@@ -1,19 +1,25 @@
 ---
 # GPSd configuration.
-gpsd_state: stopped
-gpsd_enabled: false
+gpsd_state: started
+gpsd_enabled: true
 gpsd_devices: "/dev/ttyAMA0"
 gpsd_baud: "115200"
 gpsd_options: "-s {{ gpsd_baud }} -n"
 
+gpspipe_socat_state: started
+gpspip_socat_enabled: true
+
 # Refclock to be used as a time source.
 # See: https://chrony-project.org/doc/3.4/chrony.conf.html#refclock
 chrony_refclock: |
+  # Uncomment to ignore chrony sync, trust local clock as stratum 1
+  local stratum 1
+
   # Uncomment to use NIC's PHC as time source.
-  # refclock PHC /dev/ptp0 poll 0 dpoll -5 tai  # Use NIC's PHC
+  #refclock PHC /dev/ptp0 poll 0 dpoll -5 tai  # Use NIC's PHC
 
   # Uncomment to use GPS module directly as time source.
-  refclock SHM 0 refid NMEA precision 1e-3 poll 0 filter 3
+  #refclock SHM 0 refid NMEA precision 1e-3 poll 0 filter 3
 
   # Uncomment to use PPS source (e.g. GPS PPS to GPIO pin 18)
   #refclock PPS /dev/pps0 refid PPS lock NMEA poll 3 trust
@@ -41,16 +47,18 @@ ptp4l_timeSource: '0x20'  # GPS time source (according to IEEE 1588 protocol)
 
 ts2phc_service_state: started
 ts2phc_service_enabled: true
-ts2phc_logging_level: 7
+ts2phc_logging_level: 6
 ts2phc_clock: '/dev/ptp0'
-ts2phc_source: 'generic'
-ts2phc_pin_index: '2'
-ts2phc_extra_opts: '-m'
-# If not using custom IGC driver, i226 needs these options defined because of
-# quirks. See: https://github.com/geerlingguy/time-pi/issues/13
+ts2phc_source: 'nmea'
+# See: https://github.com/geerlingguy/time-pi/issues/14 and 15.
+ts2phc_extra_opts: >-
+  --ts2phc.nmea_serialport /dev/gps-ts2phc
+  --ts2phc.extts_polarity both
+  --ts2phc.pulsewidth 200000000
 
 phc2sys_service_state: started
 phc2sys_service_enabled: true
+phc2sys_logging_level: 4  # Set to 6 to see sync and frequency updates every 1s
 phc2sys_clock: 'CLOCK_REALTIME'
 phc2sys_source: '/dev/ptp0'
-phc2sys_extra_opts: '-O 37 -m'
+phc2sys_extra_opts: '-O 37'

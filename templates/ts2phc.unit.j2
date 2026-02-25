@@ -5,7 +5,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/sbin/ts2phc -c {{ ts2phc_clock }} -s {{ ts2phc_source }} --ts2phc.pin_index {{ ts2phc_pin_index }} -l {{ ts2phc_logging_level }} {{ ts2phc_extra_opts }}
+ExecStart=/usr/sbin/ts2phc -c {{ ts2phc_clock }} -s {{ ts2phc_source }} -l {{ ts2phc_logging_level }} --leapfile /usr/share/zoneinfo/leap-seconds.list {{ ts2phc_extra_opts }}
 Restart=always
 RestartSec=3
 

@@ -9,6 +9,11 @@
     name: gpsd
     state: restarted
 
+- name: Restart gpspipe-socat
+  ansible.builtin.service:
+    name: gpspipe-socat
+    state: restarted
+
 - name: Restart NetworkManager
   ansible.builtin.service:
     name: NetworkManager

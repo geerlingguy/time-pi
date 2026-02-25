@@ -4,6 +4,7 @@
     name:
       - gpsd
       - gpsd-clients
+      - socat
     state: present
 
 - name: Configure gpsd.
@@ -25,6 +26,17 @@
     state: "{{ gpsd_state }}"
     enabled: "{{ gpsd_enabled }}"
 
-# TODO: sudo ln -s /dev/ttyAMA0 /dev/ttyS10
-- name: TODO - Add script to symlink /dev/ttyAMA0 to /dev/ttyS10 at boot
-  ansible.builtin.meta: noop
+- name: Copy gpspipe-socat systemd unit file into place.
+  ansible.builtin.template:
+    src: gpspipe-socat.unit.j2
+    dest: /etc/systemd/system/gpspipe-socat.service
+    owner: root
+    group: root
+    mode: 0755
+  notify: Restart gpspipe-socat
+
+- name: Configure gpspipe-socat service.
+  ansible.builtin.service:
+    name: gpspipe-socat
+    state: "{{ gpspipe_socat_state }}"
+    enabled: "{{ gpspip_socat_enabled }}"

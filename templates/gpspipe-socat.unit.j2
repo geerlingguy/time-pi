@@ -1,0 +1,15 @@
+[Unit]
+Description=Bridge gpsd NMEA to PTY for ts2phc
+After=gpsd.service
+Requires=gpsd.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/socat -d -d \
+  pty,rawer,echo=0,link=/dev/gps-ts2phc,mode=660,group=dialout \
+  EXEC:"gpspipe -r",pty,rawer
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

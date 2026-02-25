@@ -4,7 +4,23 @@
     name: chrony
     state: present
 
-- name: Customize chrony configuration.
+- name: Customize main chrony config file.
+  ansible.builtin.lineinfile:
+    path: /etc/chrony/chrony.conf
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.line }}"
+    state: present
+    insertafter: EOF
+  notify: Restart chrony
+  loop:
+    - regexp: '^pool\s+'
+      line: "pool 2.debian.pool.ntp.org iburst noselect"
+    - regexp: '^maxupdateskew.+'
+      line: "maxupdateskew 0"
+    - regexp: '^makestep.+'
+      line: "makestep 0 0"
+
+- name: Customize other chrony configuration.
   ansible.builtin.template:
     src: "templates/{{ item }}.j2"
     dest: "/etc/chrony/conf.d/{{ item }}"

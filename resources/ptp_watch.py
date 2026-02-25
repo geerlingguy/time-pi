@@ -15,14 +15,6 @@ import socket
 import struct
 import sys
 
-# PTP Constants
-PTP_TWO_SHOT_TYPE = 0x81  # two-shot message type
-
-def get_utc_offset(data: bytes) -> int:
-    """Extract currentUtcOffset from an Announce message (Type 0xb)."""
-    # Offset 44 in PTP header for Announce messages
-    return struct.unpack_from(">h", data, 44)[0]
-
 def ptp_to_utc(seconds: int, nanoseconds: int) -> datetime.datetime:
     """Convert PTP seconds/nanoseconds to a UTC datetime (1970 epoch)."""
     return datetime.datetime(1970, 1, 1,
@@ -30,25 +22,9 @@ def ptp_to_utc(seconds: int, nanoseconds: int) -> datetime.datetime:
            datetime.timedelta(seconds=seconds,
                               microseconds=nanoseconds / 1000)
 
-def parse_ptp_packet(data: bytes) -> tuple[int, int]:
-    if len(data) < 44: # Header (34) + Timestamp (10)
-        raise ValueError("Too short")
-
-    # Message type is the lower 4 bits of the first byte
-    msg_type = data[0] & 0x0F
-    # Sync = 0x0, Follow_Up = 0x8, etc.
-
-    # originTimestamp: 6 bytes seconds, 4 bytes nanoseconds
-    # We unpack the last 48 bits (6 bytes) of seconds
-    sec_hi, sec_lo = struct.unpack_from(">HI", data, 34)
-    seconds = (sec_hi << 32) | sec_lo
-    nanoseconds, = struct.unpack_from(">I", data, 40)
-    return seconds, nanoseconds
-
 def listen(iface: str | None = None):
     MCAST_GRP = '224.0.1.129'
     PTP_GENERAL_PORT = 320  # Port for Sync/Delay_Req messages
-    current_leap_seconds = 37
 
     # Create a standard UDP socket
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
@@ -60,7 +36,6 @@ def listen(iface: str | None = None):
     sock.bind(('', PTP_GENERAL_PORT))
 
     # Tell the kernel to join the PTP multicast group
-    # This is the "magic" step that makes the traffic visible to your script
     mreq = struct.pack("4sl", socket.inet_aton(MCAST_GRP), socket.INADDR_ANY)
     sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
 
@@ -75,20 +50,18 @@ def listen(iface: str | None = None):
             # Message type is the lower 4 bits of the first byte
             msg_type = data[0] & 0x0F
 
-            # 0x0b == announce, 0x08 == follow_up
-            if msg_type == 0x0b:
-                current_leap_seconds = get_utc_offset(data)
-            elif msg_type == 0x08:
-                sec_hi, sec_lo = struct.unpack_from(">HI", data, 34)
-                seconds = (sec_hi << 32) | sec_lo
-                nanoseconds, = struct.unpack_from(">I", data, 40)
-
-                utc = ptp_to_utc(seconds - current_leap_seconds, nanoseconds)
-                print(f"Follow_Up (0x8) | [{utc.isoformat()}] (Offset: -{current_leap_seconds}s) from {addr[0]}")
-
-            # Optional: handle other types or just 'continue'
-            else:
+            # Only process Follow_Up messages (type 0x08)
+            if msg_type != 0x08:
                 continue
+
+            # originTimestamp: 6 bytes seconds + 4 bytes nanoseconds at offset 34
+            sec_hi, sec_lo = struct.unpack_from(">HI", data, 34)
+            seconds = (sec_hi << 32) | sec_lo
+            nanoseconds, = struct.unpack_from(">I", data, 40)
+
+            # Convert directly to UTC (no leap second adjustment)
+            utc = ptp_to_utc(seconds, nanoseconds)
+            print(f"Follow_Up (0x8) | [{utc.isoformat()}] from {addr[0]}")
 
     except KeyboardInterrupt:
         print("\nStopped.")
