@@ -44,6 +44,7 @@ ts2phc_service_enabled: true
 ts2phc_logging_level: 7
 ts2phc_clock: '/dev/ptp0'
 ts2phc_source: 'generic'
+ts2phc_pin_index: '2'
 ts2phc_extra_opts: '-m'
 # If not using custom IGC driver, i226 needs these options defined because of
 # quirks. See: https://github.com/geerlingguy/time-pi/issues/13

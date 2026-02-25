@@ -100,7 +100,7 @@ For more on how to set the baud rate (or tweak other GPS module parameters), see
 
 See this issue for more: [Debug NEO-M9N module on TimeHAT V2](https://github.com/geerlingguy/time-pi/issues/11).
 
-## Usage and Debugging
+## Debugging
 
 Some handy commands:
 
@@ -127,9 +127,32 @@ sudo ./check_clocks -d eth0  # or eth1 (the interface you're using for PTP)
 
 # Check offset between NIC PHY and system clock
 sudo phc_ctl eth1 cmp  # should be nearly -37000000000ns
+
+# Use Wireshark's CLI to monitor PTP timestamps
+tshark -i en0 -f "udp port 319 or 320" -V -Y "ptp" | grep "OriginTimestamp"
+
+# Use ptp4l to listen for PTP messages
+sudo ptp4l -i eth0 -m -s -A
 ```
 
 Much of the work that went into this project was documented in [this thread on the TimeHat v2](https://github.com/geerlingguy/raspberry-pi-pcie-devices/issues/674).
+
+### PTP Debugging
+
+To see how PTP timing is functioning, specifically, you can run the following tools on another computer on the network:
+
+  - [ptp-watch.py](resources/ptp_watch.py): Python script to monitor PTP timestamps on the network from any other Linux computer (run with `sudo python3 ptp_watch.py --iface eth0`)
+  - [Wireshark](https://www.wireshark.org/): Run with filter "ptp", and it will show Announce/Sync/Follow_Up messages, allowing you to inspect the entire structured PTP message.
+    - You can also monitor using the built-in CLI, `tshark` (see example command above)
+  - [PTP Trackhound](https://www.ptptrackhound.com/#/home): A free tool (requires email subscription to Meinberg) that focuses exclusively on PTP traffic, giving more timing-related analytics.
+
+### Debugging with an Oscilloscope for ns-level precision
+
+Once you have PTP set up and multiple computers are in sync, it's useful to see how close the synchronized timing is with an oscilloscope (completely removed from the Linux OS layer).
+
+Assuming all your computers/NICs have PPS outputs, you can connect different oscilloscope channels to those PPS outputs.
+
+Then check if the rising edge of the timing pulse is close—on my LAN, I expect to see well under 100 ns of variance, with 20-30 ns more common. In some scenarios, you can get this down to single-digit ns.
 
 ## Slave / Client Setup
 
