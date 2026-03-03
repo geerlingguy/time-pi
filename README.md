@@ -173,7 +173,7 @@ An example configuration for a slave/client node is set up in `ptp-client-node.y
   - [Conor Robinson's Raspberry Pi NTP Server](https://conorrobinson.ie/raspberry-pi-ntp-server-part-6/)
   - [Jeff Geerling: Time Card mini for GPS and OXCO on Pi](https://www.jeffgeerling.com/blog/2023/time-card-mini-adds-pi-gps-and-oxco-your-pc)
   - [Raspberry Pi 5 Stratum 1 NTP Server with Uptronics GPS HAT](https://github.com/tiagofreire-pt/rpi_uputronics_stratum1_chrony/)
-- [BeagleBone Black PRU PPS (IEP hardware timestamping)](https://github.com/dniminenn/bbs-pps-pru)
+  - [BeagleBone Black PRU PPS (IEP hardware timestamping)](https://github.com/dniminenn/bbs-pps-pru)
 
 ## Other Time Resources I found Interesting
 
