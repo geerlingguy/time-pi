@@ -49,11 +49,11 @@ def listen(iface: str | None = None):
 
             # --- Handle Announce Message (0x0B) ---
             if msg_type == 0x0B and len(data) >= 64:
-                # Flags are at offset 6 (2 bytes)
+                # Flags are 2 bytes at offset 6.
                 flags = struct.unpack_from(">H", data, 6)[0]
-                # Bit 10: PTP_UTC_REASONABLE, Bit 11: PTP_TIMESCALE
-                utc_reasonable = bool(flags & 0x0400)
-                ptp_timescale = bool(flags & 0x0800)
+                # Standard PTPv2 bit positions for the 16-bit flags field:
+                ptp_timescale = bool(flags & 0x0008)   # Bit 11
+                utc_reasonable = bool(flags & 0x0004)  # Bit 10
 
                 if utc_reasonable and ptp_timescale:
                     # currentUtcOffset is at offset 44 (2 bytes)
