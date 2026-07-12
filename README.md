@@ -121,7 +121,7 @@ chronyc tracking  # shows detailed timing data
 ntpdate -q [ip of grandmaster]
 
 # Check on PTP clocks and offsets (assuming ptp4l is running)
-wget https://tsn.readthedocs.io/_downloads/f329e8dec804247b1dbb5835bd949e6f/check_clocks.c
+wget https://tsn.readthedocs.io/_downloads/5d05630fceb3e7ac1582bc94c7468fc3/check_clocks.c
 gcc -o check_clocks check_clocks.c
 sudo ./check_clocks -d eth0  # or eth1 (the interface you're using for PTP)
 
