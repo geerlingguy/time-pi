@@ -2,7 +2,7 @@
 
 This is a fork of Jeff Geerling's Time Pi repo, which was originally aimed at the TimeHAT v4/ZED-F9T setup. Over time, changes and updates in hardware in software have drifted, and it doesn't work out of the box with the v6+Neo combo that I have.
 
-This fork is is focused on a TimeHAT v6 with the onboard M.2 ublox Neo-M9N module on a Raspberry Pi 5 running Raspberry Pi OS/Debian 13 with kernel `6.18.34+rpt-rpi-2712`, though I suspect it will work for most or all 6.18 kernels.
+This fork is is focused on a TimeHAT v6 with an installed M.2 ublox Neo-M9N module on a Raspberry Pi 5 running Raspberry Pi OS/Debian 13 with kernel `6.18.34+rpt-rpi-2712`, though I suspect it will work for most or all 6.18 kernels.
 
 Information and processes should be correct as of 30 July 2026.
 
