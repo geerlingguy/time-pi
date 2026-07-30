@@ -26,13 +26,50 @@
     state: "{{ gpsd_state }}"
     enabled: "{{ gpsd_enabled }}"
 
+- name: Install TimeHAT gpsd systemd unit.
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/gpsd.service
+    owner: root
+    group: root
+    mode: 0644
+    content: |
+      [Unit]
+      Description=GPS (Global Positioning System) Daemon
+      Documentation=man:gpsd
+      Requires=gpsd.socket
+
+      [Service]
+      Type=forking
+      EnvironmentFile=-/etc/default/gpsd
+      ExecStart=/usr/sbin/gpsd $GPSD_OPTIONS $OPTIONS $DEVICES
+
+      [Install]
+      WantedBy=multi-user.target
+      Also=gpsd.socket
+  notify: Restart gpsd
+  when: ts2phc_service_enabled | default(false)
+
+- name: Remove legacy gpsd TimeHAT ordering drop-in.
+  ansible.builtin.file:
+    path: /etc/systemd/system/gpsd.service.d/timehat.conf
+    state: absent
+  notify: Restart gpsd
+  when: ts2phc_service_enabled | default(false)
+
+- name: Remove TimeHAT gpsd unit when ts2phc is disabled.
+  ansible.builtin.file:
+    path: /etc/systemd/system/gpsd.service
+    state: absent
+  notify: Restart gpsd
+  when: not (ts2phc_service_enabled | default(false))
+
 - name: Copy gpspipe-socat systemd unit file into place.
   ansible.builtin.template:
     src: gpspipe-socat.unit.j2
     dest: /etc/systemd/system/gpspipe-socat.service
     owner: root
     group: root
-    mode: 0755
+    mode: 0644
   notify: Restart gpspipe-socat
 
 - name: Configure gpspipe-socat service.

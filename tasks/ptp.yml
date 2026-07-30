@@ -17,7 +17,7 @@
     dest: /etc/systemd/system/ts2phc.service
     owner: root
     group: root
-    mode: 0755
+    mode: 0644
   notify: Restart ts2phc
 
 - name: Ensure ts2phc service is in the correct state.
@@ -32,7 +32,7 @@
     dest: /etc/systemd/system/phc2sys.service
     owner: root
     group: root
-    mode: 0755
+    mode: 0644
   notify: Restart phc2sys
 
 - name: Ensure phc2sys service is in the correct state.
@@ -54,7 +54,7 @@
     dest: /etc/systemd/system/ptp4l.service
     owner: root
     group: root
-    mode: 0755
+    mode: 0644
   notify: Restart ptp4l
 
 - name: Ensure ptp4l service is in the correct state.

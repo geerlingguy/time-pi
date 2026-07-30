@@ -1,18 +1,26 @@
 ---
 - name: Restart chrony
-  ansible.builtin.service:
+  ansible.builtin.systemd_service:
     name: chrony
     state: restarted
+    daemon_reload: true
 
-- name: Restart gpsd
+- name: Restart gpsd after chrony socket recreation
   ansible.builtin.service:
     name: gpsd
     state: restarted
+  listen: Restart chrony
+
+- name: Restart gpsd
+  ansible.builtin.systemd_service:
+    name: gpsd
+    state: restarted
+    daemon_reload: true
 
 - name: Restart gpspipe-socat
   ansible.builtin.service:
     name: gpspipe-socat
-    state: restarted
+    state: "{{ 'restarted' if gpspipe_socat_state | default('started') == 'started' else 'stopped' }}"
 
 - name: Restart NetworkManager
   ansible.builtin.service:
@@ -22,17 +30,17 @@
 - name: Restart ptp4l
   ansible.builtin.systemd_service:
     name: ptp4l
-    state: restarted
-    daemon-reload: true
+    state: "{{ 'restarted' if ptp4l_service_state | default('started') == 'started' else 'stopped' }}"
+    daemon_reload: true
 
 - name: Restart ts2phc
   ansible.builtin.systemd_service:
     name: ts2phc
-    state: restarted
-    daemon-reload: true
+    state: "{{ 'restarted' if ts2phc_service_state | default('started') == 'started' else 'stopped' }}"
+    daemon_reload: true
 
 - name: Restart phc2sys
   ansible.builtin.systemd_service:
     name: phc2sys
-    state: restarted
-    daemon-reload: true
+    state: "{{ 'restarted' if phc2sys_service_state | default('started') == 'started' else 'stopped' }}"
+    daemon_reload: true

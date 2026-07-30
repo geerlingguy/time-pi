@@ -1,10 +1,12 @@
 [Unit]
 Description=Timestamp to PHC synchronization service
-After=network-online.target
+After=network-online.target gpspipe-socat.service
 Wants=network-online.target
+Requires=gpspipe-socat.service
 
 [Service]
 Type=simple
+ExecStartPre=/bin/sh -c 'for i in $(seq 1 50); do [ -e /dev/gps-ts2phc ] && exit 0; sleep 0.2; done; exit 1'
 ExecStart=/usr/sbin/ts2phc -c {{ ts2phc_clock }} -s {{ ts2phc_source }} -l {{ ts2phc_logging_level }} --leapfile /usr/share/zoneinfo/leap-seconds.list {{ ts2phc_extra_opts }}
 Restart=always
 RestartSec=3

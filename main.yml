@@ -26,8 +26,8 @@
     - name: Configure GPS.
       ansible.builtin.include_tasks: tasks/gps.yml
 
-    - name: Configure chrony.
-      ansible.builtin.include_tasks: tasks/chrony.yml
-
     - name: Configure PTP.
       ansible.builtin.include_tasks: tasks/ptp.yml
+
+    - name: Configure chrony.
+      ansible.builtin.include_tasks: tasks/chrony.yml

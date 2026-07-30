@@ -16,9 +16,9 @@
     - regexp: '^pool\s+'
       line: "pool 2.debian.pool.ntp.org iburst noselect"
     - regexp: '^maxupdateskew.+'
-      line: "maxupdateskew 0"
+      line: "maxupdateskew 100.0"
     - regexp: '^makestep.+'
-      line: "makestep 0 0"
+      line: "makestep 1.0 -1"
 
 - name: Customize other chrony configuration.
   ansible.builtin.template:
@@ -29,6 +29,67 @@
   with_items:
     - allow.conf
     - refclock.conf
+
+- name: Install TimeHAT PHC startup wait helper.
+  ansible.builtin.copy:
+    dest: /usr/local/sbin/wait-timehat-phc
+    owner: root
+    group: root
+    mode: 0755
+    content: |
+      #!/bin/sh
+      set -eu
+
+      i=0
+      while [ "$i" -lt 120 ]; do
+        offset="$(/usr/sbin/phc_ctl /dev/ptp0 cmp 2>/dev/null | awk '/offset from CLOCK_REALTIME/ {gsub(/ns/, "", $NF); print $NF; exit}')"
+
+        if [ -n "$offset" ]; then
+          awk -v offset="$offset" 'BEGIN {
+            delta = offset + 37000000000
+            if (delta < 0) delta = -delta
+            exit !(delta < 500000000)
+          }' && exit 0
+        fi
+
+        i=$((i + 1))
+        sleep 0.5
+      done
+
+      exit 0
+  when: ts2phc_service_enabled | default(false)
+
+- name: Create chrony systemd override directory.
+  ansible.builtin.file:
+    path: /etc/systemd/system/chrony.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: 0755
+  when: ts2phc_service_enabled | default(false)
+
+- name: Start chrony after the TimeHAT PHC pipeline.
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/chrony.service.d/timehat.conf
+    owner: root
+    group: root
+    mode: 0644
+    content: |
+      [Unit]
+      Wants=ts2phc.service
+      After=ts2phc.service
+
+      [Service]
+      ExecStartPre=+/usr/local/sbin/wait-timehat-phc
+  notify: Restart chrony
+  when: ts2phc_service_enabled | default(false)
+
+- name: Remove chrony TimeHAT ordering override when ts2phc is disabled.
+  ansible.builtin.file:
+    path: /etc/systemd/system/chrony.service.d/timehat.conf
+    state: absent
+  notify: Restart chrony
+  when: not (ts2phc_service_enabled | default(false))
 
 - name: Ensure chrony is running.
   ansible.builtin.service:
