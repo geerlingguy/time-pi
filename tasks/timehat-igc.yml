@@ -1,0 +1,202 @@
+---
+- name: Refuse unknown kernels for the TimeHAT igc patch.
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.kernel is match(timehat_igc_driver_kernel_regex)
+    fail_msg: >-
+      TimeHAT igc driver patch is only validated for kernels matching
+      {{ timehat_igc_driver_kernel_regex }}. Current kernel is
+      {{ ansible_facts.kernel }}. Update the patch or disable
+      timehat_igc_driver_enabled.
+
+- name: Install TimeHAT igc DKMS build prerequisites.
+  ansible.builtin.apt:
+    name:
+      - build-essential
+      - dkms
+      - "linux-headers-{{ ansible_facts.kernel }}"
+      - patch
+      - pps-tools
+      - unzip
+    state: present
+
+- name: Install TimeHAT igc module verification helper.
+  ansible.builtin.copy:
+    dest: /usr/local/sbin/ensure-timehat-igc
+    owner: root
+    group: root
+    mode: 0755
+    content: |
+      #!/bin/sh
+      set -eu
+
+      expected="{{ timehat_igc_driver_srcversion }}"
+
+      if [ ! -e /sys/module/igc/srcversion ]; then
+        modprobe igc
+      fi
+
+      loaded="$(cat /sys/module/igc/srcversion 2>/dev/null || true)"
+      if [ "$loaded" != "$expected" ]; then
+        modprobe -r igc
+        modprobe igc
+      fi
+
+      loaded="$(cat /sys/module/igc/srcversion 2>/dev/null || true)"
+      if [ "$loaded" != "$expected" ]; then
+        echo "expected igc srcversion $expected, loaded $loaded" >&2
+        exit 1
+      fi
+
+- name: Install TimeHAT igc module verification service.
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/timehat-igc.service
+    owner: root
+    group: root
+    mode: 0644
+    content: |
+      [Unit]
+      Description=Ensure patched TimeHAT igc driver is loaded
+      DefaultDependencies=no
+      After=systemd-modules-load.service local-fs.target
+      Before=network-pre.target gpspipe-socat.service ts2phc.service chrony.service
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/sbin/ensure-timehat-igc
+      RemainAfterExit=yes
+
+      [Install]
+      WantedBy=multi-user.target
+
+- name: Enable TimeHAT igc module verification service.
+  ansible.builtin.systemd_service:
+    name: timehat-igc
+    enabled: true
+    daemon_reload: true
+
+- name: Check TimeHAT igc DKMS status.
+  ansible.builtin.command:
+    cmd: "/usr/sbin/dkms status -m igc -v {{ timehat_igc_driver_version }} -k {{ ansible_facts.kernel }}"
+  register: timehat_igc_dkms_status
+  changed_when: false
+  failed_when: false
+
+- name: Make existing TimeHAT igc DKMS source traversable.
+  ansible.builtin.file:
+    path: "/usr/src/igc-{{ timehat_igc_driver_version }}"
+    state: directory
+    owner: root
+    group: root
+    mode: 0755
+  when: "'installed' in timehat_igc_dkms_status.stdout"
+
+- name: Install TimeHAT igc DKMS module.
+  when: "'installed' not in timehat_igc_dkms_status.stdout"
+  block:
+    - name: Create temporary TimeHAT igc build directory.
+      ansible.builtin.tempfile:
+        state: directory
+        suffix: timehat-igc
+      register: timehat_igc_tmp
+
+    - name: Download TimeHAT igc PPS driver source.
+      ansible.builtin.get_url:
+        url: "{{ timehat_igc_driver_url }}"
+        dest: "{{ timehat_igc_tmp.path }}/timehat-igc.zip"
+        mode: 0644
+
+    - name: Unpack TimeHAT igc PPS driver source.
+      ansible.builtin.unarchive:
+        src: "{{ timehat_igc_tmp.path }}/timehat-igc.zip"
+        dest: "{{ timehat_igc_tmp.path }}"
+        remote_src: true
+
+    - name: Copy TimeHAT igc Linux 6.18 compatibility patch.
+      ansible.builtin.copy:
+        src: patches/timehat-igc-ppsfix-rpi5-6.12.62-linux-6.18.patch
+        dest: "{{ timehat_igc_tmp.path }}/linux-6.18.patch"
+        mode: 0644
+
+    - name: Apply TimeHAT igc Linux 6.18 compatibility patch.
+      ansible.builtin.command:
+        cmd: "patch -p1 -i {{ timehat_igc_tmp.path }}/linux-6.18.patch"
+        chdir: "{{ timehat_igc_tmp.path }}"
+
+    - name: Remove stale TimeHAT igc DKMS source directory.
+      ansible.builtin.file:
+        path: "/usr/src/igc-{{ timehat_igc_driver_version }}"
+        state: absent
+
+    - name: Install TimeHAT igc DKMS source.
+      ansible.builtin.copy:
+        src: "{{ timehat_igc_tmp.path }}/"
+        dest: "/usr/src/igc-{{ timehat_igc_driver_version }}/"
+        owner: root
+        group: root
+        mode: preserve
+        remote_src: true
+
+    - name: Make TimeHAT igc DKMS source traversable.
+      ansible.builtin.file:
+        path: "/usr/src/igc-{{ timehat_igc_driver_version }}"
+        state: directory
+        owner: root
+        group: root
+        mode: 0755
+
+    - name: Register TimeHAT igc DKMS module.
+      ansible.builtin.command:
+        cmd: "/usr/sbin/dkms add -m igc -v {{ timehat_igc_driver_version }}"
+
+    - name: Build TimeHAT igc DKMS module.
+      ansible.builtin.command:
+        cmd: "/usr/sbin/dkms build -m igc -v {{ timehat_igc_driver_version }} -k {{ ansible_facts.kernel }}"
+
+    - name: Install TimeHAT igc DKMS module.
+      ansible.builtin.command:
+        cmd: "/usr/sbin/dkms install -m igc -v {{ timehat_igc_driver_version }} -k {{ ansible_facts.kernel }}"
+      register: timehat_igc_dkms_install
+      notify: Reboot after TimeHAT igc driver install
+
+    - name: Regenerate module dependency map after TimeHAT igc install.
+      ansible.builtin.command:
+        cmd: "/usr/sbin/depmod -a {{ ansible_facts.kernel }}"
+      notify: Reboot after TimeHAT igc driver install
+
+  always:
+    - name: Remove temporary TimeHAT igc build directory.
+      ansible.builtin.file:
+        path: "{{ timehat_igc_tmp.path | default('/tmp/timehat-igc-missing') }}"
+        state: absent
+      when: timehat_igc_tmp is defined
+
+- name: Flush TimeHAT igc reboot before configuring timing services.
+  ansible.builtin.meta: flush_handlers
+
+- name: Check loaded TimeHAT igc module version.
+  ansible.builtin.command:
+    cmd: "cat /sys/module/igc/srcversion"
+  register: timehat_igc_loaded_srcversion
+  changed_when: false
+  failed_when: false
+
+- name: Reload igc if the stock module is still loaded.
+  ansible.builtin.shell:
+    cmd: "modprobe -r igc && modprobe igc"
+  when: timehat_igc_loaded_srcversion.stdout != timehat_igc_driver_srcversion
+
+- name: Re-check loaded TimeHAT igc module version.
+  ansible.builtin.command:
+    cmd: "cat /sys/module/igc/srcversion"
+  register: timehat_igc_loaded_srcversion_after_reload
+  changed_when: false
+
+- name: Verify patched TimeHAT igc module is loaded.
+  ansible.builtin.assert:
+    that:
+      - timehat_igc_loaded_srcversion_after_reload.stdout == timehat_igc_driver_srcversion
+    fail_msg: >-
+      Patched TimeHAT igc module is not loaded. Expected srcversion
+      {{ timehat_igc_driver_srcversion }}, got
+      {{ timehat_igc_loaded_srcversion_after_reload.stdout }}.

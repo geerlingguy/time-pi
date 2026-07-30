@@ -60,6 +60,10 @@ The Time Appliances vendor `intel-igc-ppsfix_rpi5_6.12.62.zip` driver fixed the 
 - Provide `SKBTX_HW_TSTAMP_USE_CYCLES` when absent.
 - Advertise `supported_extts_flags = PTP_STRICT_FLAGS | PTP_RISING_EDGE` so `PTP_EXTTS_REQUEST2` is accepted by newer PTP core code.
 
+This is intentionally guarded to kernels matching `^6\.18\.`. DKMS rebuilds the module, but it does not make out-of-tree kernel API patches magically stable across future kernel series. If Raspberry Pi OS moves to a later kernel, re-test the patch and update the guard instead of assuming it is safe.
+
+On a fresh Raspberry Pi OS image, the stock in-tree `igc` module may still autoload early even after DKMS installs the patched module. The playbook installs `timehat-igc.service`, which checks `/sys/module/igc/srcversion` at boot and reloads `igc` if the stock module is active. `ts2phc` is ordered after that service.
+
 The repo patch is:
 
 ```text

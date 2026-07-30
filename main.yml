@@ -15,6 +15,10 @@
         update_cache: true
         cache_valid_time: 1800
 
+    - name: Upgrade OS packages.
+      ansible.builtin.include_tasks: tasks/apt-upgrade.yml
+      when: apt_upgrade_enabled | default(false)
+
   tasks:
     - name: Configure Raspberry Pi settings.
       ansible.builtin.include_tasks: tasks/pi-config.yml
@@ -22,6 +26,10 @@
     - name: Configure i226 Ethernet interface.
       ansible.builtin.include_tasks: tasks/i226.yml
       when: i226_force_1gbps
+
+    - name: Install TimeHAT i226 PPS driver.
+      ansible.builtin.include_tasks: tasks/timehat-igc.yml
+      when: timehat_igc_driver_enabled | default(false)
 
     - name: Configure GPS.
       ansible.builtin.include_tasks: tasks/gps.yml

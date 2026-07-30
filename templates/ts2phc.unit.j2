@@ -2,6 +2,10 @@
 Description=Timestamp to PHC synchronization service
 After=network-online.target gpspipe-socat.service
 Wants=network-online.target
+{% if timehat_igc_driver_enabled | default(false) %}
+After=timehat-igc.service
+Wants=timehat-igc.service
+{% endif %}
 Requires=gpspipe-socat.service
 
 [Service]

@@ -1,0 +1,24 @@
+---
+- name: Upgrade installed OS packages.
+  ansible.builtin.apt:
+    upgrade: "{{ apt_upgrade_type | default('dist') }}"
+    update_cache: true
+    cache_valid_time: 1800
+
+- name: Autoremove unused packages after upgrade.
+  ansible.builtin.apt:
+    autoremove: true
+  when: apt_autoremove_enabled | default(false)
+
+- name: Check whether package upgrade requires reboot.
+  ansible.builtin.stat:
+    path: /var/run/reboot-required
+  register: apt_upgrade_reboot_required
+
+- name: Reboot after OS package upgrade if required.
+  ansible.builtin.reboot:
+  when: apt_upgrade_reboot_required.stat.exists
+
+- name: Refresh facts after package upgrade reboot.
+  ansible.builtin.setup:
+  when: apt_upgrade_reboot_required.stat.exists

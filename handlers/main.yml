@@ -27,6 +27,9 @@
     name: NetworkManager
     state: restarted
 
+- name: Reboot after TimeHAT igc driver install
+  ansible.builtin.reboot:
+
 - name: Restart ptp4l
   ansible.builtin.systemd_service:
     name: ptp4l

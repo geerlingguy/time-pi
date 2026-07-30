@@ -1,4 +1,10 @@
 ---
+# Optional OS package upgrade before any TimeHAT driver work.
+# If this installs a new kernel, the playbook reboots before DKMS builds igc.
+apt_upgrade_enabled: false
+apt_upgrade_type: dist  # yes/safe/full/dist; dist uses apt-get dist-upgrade.
+apt_autoremove_enabled: false
+
 # GPSd configuration.
 gpsd_state: started
 gpsd_enabled: true
@@ -34,6 +40,14 @@ chrony_allow: "10.0.2.0/24"
 # Force i226 eth1 interface to 1 Gbps speed.
 # See: https://github.com/geerlingguy/time-pi/issues/2
 i226_force_1gbps: true
+
+# Install Time Appliances' patched Intel igc driver for TimeHAT v6 PPS on i226 SDP2.
+# Needed for newer Raspberry Pi kernels where stock igc rejects PTP_EXTTS_REQUEST2.
+timehat_igc_driver_enabled: false
+timehat_igc_driver_version: "6.12.0-ppsfix.1"
+timehat_igc_driver_url: "https://raw.githubusercontent.com/Time-Appliances-Project/TimeHAT/refs/heads/main/intel-igc-ppsfix_rpi5_6.12.62.zip"
+timehat_igc_driver_kernel_regex: '^6\.18\.'
+timehat_igc_driver_srcversion: "F6FF87689F51C601BCAE26B"
 
 # PTP 4 Linux options.
 ptp4l_version_latest: true  # Install jclark's linuxptp v4 .deb if true
