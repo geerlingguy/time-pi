@@ -1,0 +1,31 @@
+---
+- name: Check whether final setup reboot has already run.
+  ansible.builtin.stat:
+    path: "{{ final_reboot_marker | default('/var/lib/time-pi/final-reboot-complete') }}"
+  register: final_reboot_marker_status
+
+- name: Create final reboot marker directory.
+  ansible.builtin.file:
+    path: "{{ final_reboot_marker | default('/var/lib/time-pi/final-reboot-complete') | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: 0755
+  when: >
+    not (final_reboot_once | default(true))
+    or not final_reboot_marker_status.stat.exists
+
+- name: Reboot after first successful Time Pi setup.
+  ansible.builtin.reboot:
+  when: >
+    not (final_reboot_once | default(true))
+    or not final_reboot_marker_status.stat.exists
+
+- name: Mark final setup reboot complete.
+  ansible.builtin.copy:
+    dest: "{{ final_reboot_marker | default('/var/lib/time-pi/final-reboot-complete') }}"
+    content: "final setup reboot completed\n"
+    owner: root
+    group: root
+    mode: 0644
+  when: final_reboot_once | default(true)

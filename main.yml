@@ -39,3 +39,7 @@
 
     - name: Configure chrony.
       ansible.builtin.include_tasks: tasks/chrony.yml
+
+    - name: Finalize Time Pi setup.
+      ansible.builtin.include_tasks: tasks/finalize.yml
+      when: final_reboot_enabled | default(false)

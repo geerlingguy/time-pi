@@ -5,6 +5,11 @@ apt_upgrade_enabled: false
 apt_upgrade_type: dist  # yes/safe/full/dist; dist uses apt-get dist-upgrade.
 apt_autoremove_enabled: false
 
+# Final reboot after first successful setup, so services come up from a clean boot graph.
+final_reboot_enabled: false
+final_reboot_once: true
+final_reboot_marker: /var/lib/time-pi/final-reboot-complete
+
 # GPSd configuration.
 gpsd_state: started
 gpsd_enabled: true
