@@ -61,6 +61,14 @@
   changed_when: false
   when: i226_manage_networkmanager | default(false)
 
+- name: Check whether i226 interface exists.
+  ansible.builtin.command:
+    cmd: "ip link show {{ i226_iface | default('eth1') }}"
+  register: i226_iface_status
+  changed_when: false
+  failed_when: false
+  when: i226_manage_networkmanager | default(false)
+
 - name: Bring up i226 NetworkManager connection.
   ansible.builtin.command:
     argv:
@@ -69,4 +77,10 @@
       - up
       - "{{ i226_connection_name | default('timehat-ptp-eth1') }}"
   changed_when: false
-  when: i226_manage_networkmanager | default(false)
+  register: i226_nm_up
+  failed_when: >
+    i226_nm_up.rc != 0
+    and 'No suitable device found for this connection' not in i226_nm_up.stderr
+  when:
+    - i226_manage_networkmanager | default(false)
+    - i226_iface_status.rc == 0

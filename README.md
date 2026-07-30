@@ -40,7 +40,7 @@ Make sure you have Ansible installed. Copy the following example files and custo
 Now run the Ansible playbook:
 
 ```
-ansible-playbook main.yml
+ansible-playbook -i hosts.ini main.yml
 ```
 
 This playbook will configure:
@@ -50,6 +50,37 @@ This playbook will configure:
   - [Linux PTP](https://linuxptp.nwtime.org): synchronize the system clock to the NIC PHC (Physical Hardware Clock), and set up the Pi as a PTP grandmaster clock
 
 > **Intel i226 Notes**: Currently I can't get the i226 to work with DHCP at all, so I have to manually set an IP address using `nmtui`. It also [doesn't work at 2.5 Gbps currently](https://github.com/geerlingguy/raspberry-pi-pcie-devices/issues/674#issuecomment-2533117275), and it can't be overridden via Linux, so I make sure to plug it into a 1 Gbps port on my network.
+
+### TimeHAT v6 + NEO-M9N Notes
+
+For the TimeHAT v6 with the M.2 u-blox NEO-M9N on Raspberry Pi OS/Debian 13, boot the fresh SD card with the onboard Raspberry Pi Ethernet connected and the Intel i226 cable unplugged. Run the playbook all the way through its reboots. After the final reboot completes, plug in the Intel i226 cable if you want PTP.
+
+In the default two-cable PTP setup, the Intel NIC gets a DHCP address but does not install a default route:
+
+```yaml
+i226_manage_networkmanager: true
+i226_network_role: ptp
+```
+
+Use this mode when `eth0` is the normal management/NTP interface and `eth1` is the PTP-facing interface. PTP packets are sourced from `eth1`, but regular outbound traffic keeps using `eth0`.
+
+If you want to use only the Intel NIC for both normal networking and PTP, change the role and rerun the playbook:
+
+```yaml
+i226_network_role: primary
+```
+
+Keep onboard Ethernet, Wi-Fi, or console access available until you confirm the Intel NIC's DHCP lease. Switching to primary mode can change the address you use for SSH or DNS.
+
+If you do not care about serving PTP, leave the Intel cable unplugged and disable `ptp4l` in `config.yml`:
+
+```yaml
+ptp4l_service_state: stopped
+ptp4l_service_enabled: false
+i226_manage_networkmanager: false
+```
+
+The TimeHAT v6 PPS path still uses the i226 PHC internally, so disabling PTP service does not necessarily mean disabling the TimeHAT i226 driver work.
 
 ## Setup - Client Pis
 

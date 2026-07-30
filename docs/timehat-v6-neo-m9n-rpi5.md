@@ -12,6 +12,7 @@ The working clock chain is:
 4. `ts2phc` reads NMEA from `/dev/gps-ts2phc` and PPS timestamps from Intel i226 `SDP2`.
 5. `ts2phc` disciplines the i226 PHC at `/dev/ptp0`.
 6. Chrony disciplines the system UTC clock from `/dev/ptp0`.
+7. `ptp4l` serves PTP from the i226 on `eth1` when PTP is enabled.
 
 There is no external SMA loopback in this setup. Time Appliances documents the TimeHAT v6 M.2 GNSS PPS as internally connected to i226 `SDP2`.
 
@@ -87,20 +88,52 @@ igc/6.12.0-ppsfix.1, 6.18.34+rpt-rpi-2712, aarch64: installed (Original modules 
 Expected active services:
 
 ```text
+timehat-igc
 gpsd
 gpspipe-socat
 ts2phc
 chrony
-```
-
-Expected disabled/inactive services for this phase:
-
-```text
-phc2sys
 ptp4l
 ```
 
+Expected disabled/inactive services:
+
+```text
+phc2sys
+```
+
 Chrony owns disciplining the system clock from the PHC. `phc2sys` should stay off or it will fight Chrony.
+
+`ptp4l` serves the disciplined PHC to PTP clients. It is normal for `ptp4l` to start with the `eth1` port in `FAULTY` state when the Intel cable is unplugged. After the cable is connected and link comes up, it should move to `MASTER`.
+
+## Intel i226 Network Role
+
+On a fresh SD card, boot with the onboard Raspberry Pi Ethernet connected and the Intel i226 cable unplugged. Run the playbook to completion, including the boot overlay reboot, the DKMS driver reboot, and the final setup reboot. After the playbook finishes, plug in the Intel cable if PTP is wanted.
+
+The default TimeHAT v6 config uses DHCP on `eth1` for UDP PTP but suppresses default routes:
+
+```yaml
+i226_manage_networkmanager: true
+i226_network_role: ptp
+```
+
+Expected shape:
+
+```text
+eth0: DHCP address and default route
+eth1: DHCP address, no default route
+wlan0: optional backup address/route
+```
+
+This keeps SSH/NTP management on the onboard Pi NIC while PTP packets source from the Intel NIC.
+
+To make the Intel NIC the primary network interface as well as the PTP interface, change:
+
+```yaml
+i226_network_role: primary
+```
+
+Rerun the playbook, confirm the Intel NIC's DHCP lease, then move/unplug cables as desired. Keep console, Wi-Fi, or onboard Ethernet available until the new address is known.
 
 Chrony should also be allowed to step large offsets at any time:
 
@@ -168,6 +201,39 @@ sudo phc_ctl /dev/ptp0 cmp
 
 Expected offset from `CLOCK_REALTIME` is close to `-37000000000ns`. This means the system clock is UTC and the PHC is TAI/PTP. That is correct when Chrony uses `tai`.
 
+Check PTP grandmaster state:
+
+```bash
+sudo pmc -u -b 0 "GET PORT_DATA_SET" "GET GRANDMASTER_SETTINGS_NP"
+```
+
+Expected with `eth1` plugged in:
+
+```text
+portState               MASTER
+clockClass              6
+currentUtcOffset        37
+ptpTimescale            1
+timeTraceable           1
+timeSource              0x20
+```
+
+From a Linux client without hardware timestamping, software timestamping can still verify protocol discovery:
+
+```bash
+sudo timeout 180 ptp4l -m -i <client_iface> -S -s
+```
+
+Good output includes:
+
+```text
+new foreign master 54494d.fffe.45010e-1
+selected best master clock 54494d.fffe.45010e
+UNCALIBRATED to SLAVE
+```
+
+Software timestamping proves the protocol path, not nanosecond-grade client sync.
+
 ## Useful References
 
 - TimeHAT vendor repo: https://github.com/Time-Appliances-Project/TimeHAT
@@ -180,17 +246,20 @@ Expected offset from `CLOCK_REALTIME` is close to `-37000000000ns`. This means t
 A useful fork validation test is:
 
 1. Flash a fresh Raspberry Pi OS/Debian image.
-2. Boot with the TimeHAT v6, NEO-M9N, antenna, and Ethernet attached.
+2. Boot with the TimeHAT v6, NEO-M9N, antenna, onboard Pi Ethernet attached, and Intel i226 Ethernet unplugged.
 3. Install only the minimum bootstrap dependencies needed to clone the fork and run Ansible.
 4. Run the playbook from a default TimeHAT v6 config.
-5. Reboot and verify:
+5. Let the playbook complete all reboots.
+6. Plug in the Intel i226 Ethernet cable if PTP is enabled.
+7. Verify:
 
 ```bash
 systemctl is-active gpsd gpspipe-socat ts2phc chrony phc2sys ptp4l
 chronyc tracking
 chronyc sources -v
 sudo phc_ctl /dev/ptp0 cmp
+journalctl -u ptp4l -b --no-pager -n 80
 journalctl -b --no-pager | grep -Ei 'gpsd|gpspipe|ts2phc|chrony|System clock wrong|System clock was stepped'
 ```
 
-Expected result: `gpsd`, `gpspipe-socat`, `ts2phc`, and `chrony` are active; `phc2sys` and `ptp4l` are inactive for this phase; Chrony selects `PHC`; and there are no repeated 37 second UTC/TAI corrections after startup.
+Expected result: `gpsd`, `gpspipe-socat`, `ts2phc`, `chrony`, and `ptp4l` are active; `phc2sys` is inactive; Chrony selects `PHC`; `ptp4l` reaches `MASTER` after `eth1` link comes up; and there are no repeated 37 second UTC/TAI corrections after startup.
