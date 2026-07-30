@@ -1,12 +1,20 @@
 ---
-# Optional OS package upgrade before any TimeHAT driver work.
+# Apt Upgrades - optional
+# 
+# If this is true, the playbook will run an apt update and upgrade before doing anything else.
 # If this installs a new kernel, the playbook reboots before DKMS builds igc.
+# Not strictly necessary, but if you're cosplaying as a sysadmin...
 apt_upgrade_enabled: false
 apt_upgrade_type: dist  # yes/safe/full/dist; dist uses apt-get dist-upgrade.
 apt_autoremove_enabled: false
 
-# Final reboot after first successful setup, so services come up from a clean boot graph.
-final_reboot_enabled: false
+
+# Final Reboot
+# 
+# If true, the Pi will be rebooted after first successful setup, so services come up 
+# from a clean boot, rather than waiting for chrony to drift to the right time.  It also
+# verifies that everything not only worked, but survives rebooting.  Recommended.
+final_reboot_enabled: true
 final_reboot_once: true
 final_reboot_marker: /var/lib/time-pi/final-reboot-complete
 
@@ -22,6 +30,14 @@ gpspip_socat_enabled: true
 
 # Refclock to be used as a time source.
 # See: https://chrony-project.org/doc/3.4/chrony.conf.html#refclock
+#
+# 
+# Information for TimeHATv6 with Neo-M9N:
+# 
+# If you are using a TimeHATv6/Neo combo, you will probably want something like this:
+#    refclock PHC /dev/ptp0 poll 0 dpoll -5 tai refid PHC precision 1e-9 trust
+#    refclock SOCK /run/chrony.clk.ttyAMA0.sock refid GNSS precision 1e-3 poll 4 noselect offset +0.065
+# For an explanation, see docs/chrony_refclock.md
 chrony_refclock: |
   # Uncomment to ignore chrony sync, trust local clock as stratum 1
   local stratum 1
@@ -44,10 +60,30 @@ chrony_allow: "10.0.2.0/24"
 
 # Force i226 eth1 interface to 1 Gbps speed.
 # See: https://github.com/geerlingguy/time-pi/issues/2
+#
+# Note: on the TimeHATv6+Neo-M9N branch, 2.5G speeds are untested.  It might work fine.
 i226_force_1gbps: true
 
-# Optionally give the i226 a DHCP address for UDP PTP.
-# Use "ptp" to suppress default routes, or "primary" to allow regular network traffic.
+# Optionally give the i226 a DHCP address for UDP PTP on TimeHATv6 + Neo-M9N.
+# 
+# If you don't plan to use the intel nic, you don't have to worry about this part.
+# Basically, this tells your pi what to do with the intel nic.
+# 
+# i226_manage_networkmanager: true/false.  When false, this playbook will not set up
+#   a DHCP profile or an IP for the intel nic.  When true, it sets up DHCP.
+# 
+# i226_network_role: ptp or primary.  ptp = Don't let the intel nic have a default
+#   route, but let it have DHCP.  primary = Treat it as normal.
+# 
+#   Explanation: if you plug both the intel nic and the pi nic in, and let them both 
+#   get a DHCP assignment and networking routes, it will likely cause confusing network
+#   shenanigans.
+#   So, basically, set this to ptp if you want to plug in both nics and 
+#   use the intel one for PTP.  Set this to primary if you intend to unplug the 
+#   Pi nic and use the intel nic as the only network interface for the device.
+#   Note however that the pi will not boot if the intel nic is plugged in before this
+#   playbook is run and the driver is compiled and installed, so at some point you will
+#   have to plug in the pi nic.
 i226_manage_networkmanager: false
 i226_network_role: ptp
 i226_iface: eth1
@@ -58,6 +94,9 @@ i226_connection_autoconnect: true
 
 # Install Time Appliances' patched Intel igc driver for TimeHAT v6 PPS on i226 SDP2.
 # Needed for newer Raspberry Pi kernels where stock igc rejects PTP_EXTTS_REQUEST2.
+# This is what gets the intel nic working on a TimeHATv6 + Neo-M9N.
+# Hopefully, this will work for all 6.18 kernels, but beyond that is a :shrug: so the 
+# playbook will bomb if it detects anything other than 6.18.
 timehat_igc_driver_enabled: false
 timehat_igc_driver_version: "6.12.0-ppsfix.1"
 timehat_igc_driver_url: "https://raw.githubusercontent.com/Time-Appliances-Project/TimeHAT/refs/heads/main/intel-igc-ppsfix_rpi5_6.12.62.zip"
