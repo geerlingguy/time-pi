@@ -5,3 +5,68 @@
     dest: "/etc/network/if-up.d/eth1"
     mode: 0755
   notify: Restart NetworkManager
+  when: i226_force_1gbps | default(false)
+
+- name: Check NetworkManager connections.
+  ansible.builtin.command:
+    cmd: /usr/bin/nmcli -t -f NAME connection show
+  register: i226_nm_connections
+  changed_when: false
+  when: i226_manage_networkmanager | default(false)
+
+- name: Validate i226 network role.
+  ansible.builtin.assert:
+    that:
+      - i226_network_role | default('ptp') in ['ptp', 'primary']
+    fail_msg: "i226_network_role must be either 'ptp' or 'primary'."
+  when: i226_manage_networkmanager | default(false)
+
+- name: Create i226 NetworkManager connection.
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/nmcli
+      - connection
+      - add
+      - type
+      - ethernet
+      - ifname
+      - "{{ i226_iface | default('eth1') }}"
+      - con-name
+      - "{{ i226_connection_name | default('timehat-ptp-eth1') }}"
+      - autoconnect
+      - "no"
+  when:
+    - i226_manage_networkmanager | default(false)
+    - i226_connection_name | default('timehat-ptp-eth1') not in i226_nm_connections.stdout_lines
+
+- name: Configure i226 NetworkManager connection.
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/nmcli
+      - connection
+      - modify
+      - "{{ i226_connection_name | default('timehat-ptp-eth1') }}"
+      - connection.interface-name
+      - "{{ i226_iface | default('eth1') }}"
+      - connection.autoconnect
+      - "{{ 'yes' if i226_connection_autoconnect | default(true) else 'no' }}"
+      - ipv4.method
+      - "{{ i226_ipv4_method | default('auto') }}"
+      - ipv4.never-default
+      - "{{ 'no' if i226_network_role | default('ptp') == 'primary' else 'yes' }}"
+      - ipv4.ignore-auto-routes
+      - "{{ 'no' if i226_network_role | default('ptp') == 'primary' else 'yes' }}"
+      - ipv6.method
+      - "{{ i226_ipv6_method | default('disabled') }}"
+  changed_when: false
+  when: i226_manage_networkmanager | default(false)
+
+- name: Bring up i226 NetworkManager connection.
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/nmcli
+      - connection
+      - up
+      - "{{ i226_connection_name | default('timehat-ptp-eth1') }}"
+  changed_when: false
+  when: i226_manage_networkmanager | default(false)

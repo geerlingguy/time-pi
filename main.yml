@@ -25,7 +25,9 @@
 
     - name: Configure i226 Ethernet interface.
       ansible.builtin.include_tasks: tasks/i226.yml
-      when: i226_force_1gbps
+      when: >
+        i226_force_1gbps | default(false)
+        or i226_manage_networkmanager | default(false)
 
     - name: Install TimeHAT i226 PPS driver.
       ansible.builtin.include_tasks: tasks/timehat-igc.yml

@@ -92,7 +92,9 @@
   when: "'installed' in timehat_igc_dkms_status.stdout"
 
 - name: Install TimeHAT igc DKMS module.
-  when: "'installed' not in timehat_igc_dkms_status.stdout"
+  when:
+    - "'installed' not in timehat_igc_dkms_status.stdout"
+    - not ansible_check_mode
   block:
     - name: Create temporary TimeHAT igc build directory.
       ansible.builtin.tempfile:
@@ -178,6 +180,7 @@
   ansible.builtin.command:
     cmd: "cat /sys/module/igc/srcversion"
   register: timehat_igc_loaded_srcversion
+  check_mode: false
   changed_when: false
   failed_when: false
 
@@ -190,6 +193,7 @@
   ansible.builtin.command:
     cmd: "cat /sys/module/igc/srcversion"
   register: timehat_igc_loaded_srcversion_after_reload
+  check_mode: false
   changed_when: false
 
 - name: Verify patched TimeHAT igc module is loaded.

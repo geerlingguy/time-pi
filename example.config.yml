@@ -46,6 +46,16 @@ chrony_allow: "10.0.2.0/24"
 # See: https://github.com/geerlingguy/time-pi/issues/2
 i226_force_1gbps: true
 
+# Optionally give the i226 a DHCP address for UDP PTP.
+# Use "ptp" to suppress default routes, or "primary" to allow regular network traffic.
+i226_manage_networkmanager: false
+i226_network_role: ptp
+i226_iface: eth1
+i226_connection_name: timehat-ptp-eth1
+i226_ipv4_method: auto
+i226_ipv6_method: disabled
+i226_connection_autoconnect: true
+
 # Install Time Appliances' patched Intel igc driver for TimeHAT v6 PPS on i226 SDP2.
 # Needed for newer Raspberry Pi kernels where stock igc rejects PTP_EXTTS_REQUEST2.
 timehat_igc_driver_enabled: false

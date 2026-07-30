@@ -2,6 +2,10 @@
 Description=Precision Time Protocol (PTP) service
 After=network-online.target
 Wants=network-online.target
+{% if timehat_igc_driver_enabled | default(false) %}
+After=timehat-igc.service
+Wants=timehat-igc.service
+{% endif %}
 
 [Service]
 Type=simple
