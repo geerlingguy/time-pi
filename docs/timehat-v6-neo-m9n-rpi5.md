@@ -48,12 +48,12 @@ To use PTP, as long as the intel nic is plugged into the same network as your ot
 
 ## Options in the config.yml
 
-Where appropriate, I have added comments to the example.config.yml that will hopefully make sense of the new options.  I have also added [chrony_refclock.md] in the same directory as this file that goes into detail about the chrony configuration that worked for me, so that you can make intelligent choices about what, if anything, you want to change.
+Where appropriate, I have added comments to the example.config.yml that will hopefully make sense of the new options.  I have also added [chrony_refclock.md](chrony_refclock.md) in the same directory as this file that goes into detail about the chrony configuration that worked for me, so that you can make intelligent choices about what, if anything, you want to change.
 
 ### Highlights and notable new config options:
 
  * `apt_upgrade_enabled: false` and associated options - set to true if you want Ansible to run an apt upgrade before doing anything else.  I mostly added this because I was doing a lot of clean room testing (flash SD card, run playbook, fix bugs, flash sd card, run playbook, fix bugs), and I just wanted my OS up to date.  
- * `chrony_refclock:` - See [chrony_refclock.md] for more details.  
+ * `chrony_refclock:` - See [chrony_refclock.md](chrony_refclock.md) for more details.  
  * `i226_force_1gbps:` - I left this on, which is Jeff's default.  I didn't test it at 2.5gbps.  For all I know it might work fine.  I just don't need faster than 1gbps on my time pi.
  * `i226_manage_networkmanager: false` - When false, this will not give the intel nic a DHCP config.  When true, it will.  Note: DHCP, or indeed, an ip address at all, is not required for PTP to work.
  * `i226_network_role: [ptp | primary]` - only does anything when `i226_manage_networkmanager` is true.  When set to `ptp`, this will let the intel nic get a DHCP address, but will not give it a default route.  This stops it from fighting with the other nic if they are both plugged in.  It might work fine but it's bad practice.  When set to `primary`, it will treat it as a normal nic, allowing it to get a DHCP address and set whatever routes it feels are appropriate.  This is for when you want to use only the intel nic, and you want to unplug the Pi's nic.
