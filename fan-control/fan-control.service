@@ -1,0 +1,12 @@
+[Unit]
+Description=Pin Pi 5 fan at fixed speed
+After=multi-user.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/fan-control 3
+RemainAfterExit=yes
+ExecStop=/usr/local/bin/fan-control auto
+
+[Install]
+WantedBy=multi-user.target

@@ -163,6 +163,8 @@ An example configuration for a slave/client node is set up in `ptp-client-node.y
 ## Other Pi Time projects in this repository
 
   - [Raspberry Pi Pico Mini Rack GPS Clock](./pico-clock-mini-rack/README.md)
+  - [Chrony Dashboard](./chrony-dashboard/README.md)
+  - [Fan Control](./fan-control/README.md)
 
 ## Other Hobbyist Time Servers and Pi Time Builds
 
