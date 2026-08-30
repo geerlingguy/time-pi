@@ -76,7 +76,8 @@ CREATE TABLE IF NOT EXISTS tracking (
     selected      INTEGER,-- 1 = a source is selected (*), 0 = holdover/none
     combined      INTEGER,-- number of '+' sources diluting the solution
     nmea_offset   REAL,   -- NMEA offset vs system clock (sourcestats), seconds
-    nmea_sd       REAL    -- NMEA std dev (sourcestats), seconds
+    nmea_sd       REAL,   -- NMEA std dev (sourcestats), seconds
+    temp_c        REAL    -- SoC temperature, °C
 );
 CREATE INDEX IF NOT EXISTS idx_tracking_ts ON tracking (ts);
 """
@@ -93,7 +94,8 @@ def ensure_columns(conn):
     """Add columns introduced after the first release to an existing DB."""
     cols = {r[1] for r in conn.execute("PRAGMA table_info(tracking)")}
     for name, decl in (("selected", "INTEGER"), ("combined", "INTEGER"),
-                       ("nmea_offset", "REAL"), ("nmea_sd", "REAL")):
+                       ("nmea_offset", "REAL"), ("nmea_sd", "REAL"),
+                       ("temp_c", "REAL")):
         if name not in cols:
             conn.execute(f"ALTER TABLE tracking ADD COLUMN {name} {decl}")
     conn.commit()
@@ -108,6 +110,15 @@ def chronyc_csv(*args):
         capture_output=True, text=True, timeout=10, check=True,
     ).stdout
     return [line.split(",") for line in out.strip().splitlines() if line]
+
+
+def read_temp():
+    """SoC temperature in °C from sysfs, or None if unavailable."""
+    try:
+        with open("/sys/class/thermal/thermal_zone0/temp") as f:
+            return int(f.read().strip()) / 1000.0
+    except (OSError, ValueError):
+        return None
 
 
 def poll_once():
@@ -135,6 +146,7 @@ def poll_once():
             "src_err": None,
             "selected": 0,
             "combined": 0,
+            "temp_c": read_temp(),
         }
         # Scan all sources: find the selected (*) row, count combined (+) rows.
         for row in chronyc_csv("sources"):
@@ -176,11 +188,11 @@ def poller(stop_event):
                    (ts, stratum, sys_offset, last_offset, rms_offset,
                     freq_ppm, resid_ppm, skew_ppm, root_delay, root_disp,
                     leap, ref_name, src_reach, src_err, selected, combined,
-                    nmea_offset, nmea_sd)
+                    nmea_offset, nmea_sd, temp_c)
                    VALUES (:ts,:stratum,:sys_offset,:last_offset,:rms_offset,
                            :freq_ppm,:resid_ppm,:skew_ppm,:root_delay,
                            :root_disp,:leap,:ref_name,:src_reach,:src_err,
-                           :selected,:combined,:nmea_offset,:nmea_sd)""",
+                           :selected,:combined,:nmea_offset,:nmea_sd,:temp_c)""",
                 sample,
             )
             conn.commit()
@@ -204,7 +216,8 @@ def api_current():
     row = conn.execute(
         """SELECT ts, stratum, sys_offset, last_offset, rms_offset, freq_ppm,
                   resid_ppm, skew_ppm, root_delay, root_disp, leap, ref_name,
-                  src_reach, src_err, selected, combined, nmea_offset, nmea_sd
+                  src_reach, src_err, selected, combined, nmea_offset, nmea_sd,
+                  temp_c
            FROM tracking ORDER BY ts DESC LIMIT 1"""
     ).fetchone()
     first = conn.execute("SELECT MIN(ts), COUNT(*) FROM tracking").fetchone()
@@ -214,7 +227,7 @@ def api_current():
     keys = ["ts", "stratum", "sys_offset", "last_offset", "rms_offset",
             "freq_ppm", "resid_ppm", "skew_ppm", "root_delay", "root_disp",
             "leap", "ref_name", "src_reach", "src_err", "selected", "combined",
-            "nmea_offset", "nmea_sd"]
+            "nmea_offset", "nmea_sd", "temp_c"]
     d = dict(zip(keys, row))
     d.update(ok=True, hostname=HOSTNAME, poll=POLL_INTERVAL,
              first_ts=first[0], samples=first[1],
@@ -235,7 +248,7 @@ def api_history(hours):
                   AVG(skew_ppm), AVG(root_disp), AVG(src_err),
                   MIN(last_offset), MAX(last_offset),
                   AVG(selected), AVG(combined),
-                  AVG(nmea_offset), AVG(nmea_sd)
+                  AVG(nmea_offset), AVG(nmea_sd), AVG(temp_c)
            FROM tracking WHERE ts >= :since
            GROUP BY bucket ORDER BY bucket""",
         {"step": step, "since": since},
@@ -245,7 +258,7 @@ def api_history(hours):
     # nulls where no samples exist, so short histories show against the
     # complete time axis instead of stretching to fill it.
     by_bucket = {r[0]: r for r in rows}
-    empty = (None,) * 12
+    empty = (None,) * 13
     buckets = range((since // step) * step, now + step, step)
     padded = [(b,) + tuple(by_bucket.get(b, (b,) + empty)[1:]) for b in buckets]
     return {
@@ -264,6 +277,7 @@ def api_history(hours):
         "combined": [r[10] for r in padded],
         "nmea_off": [r[11] for r in padded],
         "nmea_sd":  [r[12] for r in padded],
+        "temp":     [r[13] for r in padded],
     }
 
 
@@ -540,6 +554,7 @@ footer{margin-top:34px;font-size:10px;color:var(--dim);letter-spacing:.08em}
 <div class="charts">
   <div class="chart"><h2 data-tip="The most recent measured offset between the system clock and the selected reference at each clock update. On a healthy PPS lock this hovers within a few microseconds of zero; sustained excursions mean the discipline is being disturbed. Averaged per time bucket in this view.">Last offset <small>· µs</small></h2><div class="wrap"><canvas id="c_off"></canvas></div></div>
   <div class="chart"><h2 data-tip="The rate the system clock would drift without correction, in parts per million. This is the crystal's natural error — it breathes with temperature, and chrony compensates continuously. The absolute value doesn't matter; slow smooth movement is normal, sudden jumps are not.">Frequency <small>· ppm</small></h2><div class="wrap"><canvas id="c_frq"></canvas></div></div>
+  <div class="chart"><h2 data-tip="SoC temperature from the thermal zone. The crystal's frequency error tracks temperature, so this curve should mirror the frequency chart — a diurnal swing here explains a diurnal ppm swing there. Flat temperature with a moving frequency points at something other than thermals.">Temperature <small>· °C</small></h2><div class="wrap"><canvas id="c_tmp"></canvas></div></div>
   <div class="chart"><h2 data-tip="Long-term root-mean-square average of measured offsets — the overall jitter of the clock discipline. On a Pi with GPIO PPS, tens of microseconds is typical; most of it is interrupt latency variation.">RMS offset <small>· µs</small></h2><div class="wrap"><canvas id="c_rms"></canvas></div></div>
   <div class="chart"><h2 data-tip="Chrony's estimated uncertainty in its own frequency measurement. Lower means the discipline is converged and the oscillator is stable. Rises briefly after restarts or reference dropouts, then settles.">Skew <small>· ppm</small></h2><div class="wrap"><canvas id="c_skw"></canvas></div></div>
   <div class="chart"><h2 data-tip="The accumulated worst-case error bound toward the reference clock. NTP clients add this (plus root delay and network path) to their own error budget, so it bounds the accuracy this server can pass downstream.">Root dispersion <small>· µs</small></h2><div class="wrap"><canvas id="c_dsp"></canvas></div></div>
@@ -621,6 +636,7 @@ const CELLS = [
   ["Last offset",    c => fmtOffset(c.last_offset)],
   ["RMS offset",     c => fmtOffset(c.rms_offset)],
   ["Frequency",      c => fmt(c.freq_ppm,3)+" <small>ppm</small>"],
+  ["Temperature",    c => c.temp_c==null ? "—" : fmt(c.temp_c,1)+" <small>°C</small>"],
   ["Residual freq",  c => fmt(c.resid_ppm,3)+" <small>ppm</small>"],
   ["Skew",           c => fmt(c.skew_ppm,3)+" <small>ppm</small>"],
   ["Root dispersion",c => fmtOffset(c.root_disp)],
@@ -654,6 +670,7 @@ function initCharts(){
   charts.off = mkChart("c_off", g, true);
   charts.rms = mkChart("c_rms", g);
   charts.frq = mkChart("c_frq", a);
+  charts.tmp = mkChart("c_tmp", a, true);
   charts.skw = mkChart("c_skw", a);
   charts.dsp = mkChart("c_dsp", cy);
   charts.err = mkChart("c_err", cy, true);
@@ -722,6 +739,7 @@ async function loadHistory(){
   put(charts.off, scale(h.offset, 1e6));
   put(charts.rms, scale(h.rms, 1e6));
   put(charts.frq, h.freq);
+  put(charts.tmp, h.temp);
   put(charts.skw, h.skew);
   put(charts.dsp, scale(h.rootdisp, 1e6));
   put(charts.err, scale(h.srcerr, 1e9));
@@ -919,7 +937,7 @@ const sysDark = matchMedia("(prefers-color-scheme: dark)");
 function restyleCharts(){
   const g=css("--vfd"), a=css("--amber"), cy=css("--cyan");
   const ln=css("--line"), dm=css("--dim");
-  const palette = {off:[g],rms:[g],frq:[a],skw:[a],dsp:[cy],err:[cy],sel:[g,a],nmea:[g,a]};
+  const palette = {off:[g],rms:[g],frq:[a],tmp:[a],skw:[a],dsp:[cy],err:[cy],sel:[g,a],nmea:[g,a]};
   for (const [k, cols] of Object.entries(palette)){
     const c = charts[k]; if (!c) continue;
     c.data.datasets.forEach((ds,i)=>{
