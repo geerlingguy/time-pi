@@ -827,14 +827,13 @@ const CELLS = [
   ["RMS offset",     c => fmtOffset(c.rms_offset)],
   ["Frequency",      c => fmt(c.freq_ppm,3)+" <small>ppm</small>"],
   ["Temperature",    c => c.temp_c==null ? "—" : fmt(c.temp_c,1)+" <small>°C</small>"],
-  ["Residual freq",  c => fmt(c.resid_ppm,3)+" <small>ppm</small>"],
   ["Skew",           c => fmt(c.skew_ppm,3)+" <small>ppm</small>"],
-  ["Root dispersion",c => fmtOffset(c.root_disp)],
+  ["Root disp",      c => fmtOffset(c.root_disp)],
   ["NMEA offset",    c => c.nmea_offset==null ? "—" : fmtOffset(c.nmea_offset)],
   ["NMEA std dev",   c => c.nmea_sd==null ? "—" : fmtOffset(c.nmea_sd)],
   ["NTP rate",       c => c.ntp_rate==null ? "—" : fmt(c.ntp_rate,1)+" <small>req/s</small>"],
-  ["NTP clients",    c => c.clients==null ? "—" :
-                          (c.clients_act ?? "—")+" <small>active · "+c.clients+" seen</small>"],
+  ["NTP clients",    c => c.clients_act==null ? "—" :
+                          c.clients_act+" <small>past hour</small>"],
   ["Leap status",    c => c.leap],
 ];
 
@@ -1010,6 +1009,25 @@ function labelsFor(ts){
   });
 }
 
+// Minimum y-axis spans (in each chart's display units). Autoscale zooms
+// all the way into the noise, making tight, healthy traces look wild;
+// enforcing a floor on the visible range keeps small jitter looking
+// small. If the data genuinely exceeds the span, autoscale takes over.
+const MIN_SPAN = {frq: 1.0, tmp: 5, off: 2, skw: 0.05};
+function applyMinSpan(key){
+  const c = charts[key], span = MIN_SPAN[key], y = c.options.scales.y;
+  const vals = c.data.datasets.flatMap(d => d.data).filter(v => v != null);
+  if (!vals.length) return;
+  const lo = Math.min(...vals), hi = Math.max(...vals);
+  if (hi - lo >= span){ delete y.min; delete y.max; }
+  else {
+    const mid = (hi + lo) / 2;
+    y.min = mid - span / 2;
+    y.max = mid + span / 2;
+  }
+  c.update();
+}
+
 async function loadHistory(){
   const [r, re] = await Promise.all([
     fetch("/api/history?hours="+hours),
@@ -1047,6 +1065,7 @@ async function loadHistory(){
   charts.ncl.data.datasets[0].data = h.clients;
   charts.ncl.data.datasets[1].data = h.clients_act;
   charts.ncl.update();
+  Object.keys(MIN_SPAN).forEach(applyMinSpan);
 }
 
 // Running clock. On each /api/current refresh we anchor to the NTP server's
