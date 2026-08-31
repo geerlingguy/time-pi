@@ -12,6 +12,13 @@ Environment variables (all optional):
                                                   or ./chrony.db)
   DASH_POLL        poll interval, seconds        (default: 30)
   DASH_RETENTION   days of history to keep       (default: 180)
+
+NTP server stats (req/s, drops/s, unique clients) come from `chronyc
+serverstats` and `chronyc clients`, which need chronyd's admin socket —
+run as root or a member of the chrony group (`clients` also requires
+client logging to be enabled in chronyd, which it is by default).
+Events (reboot, chrony restart, PPS lost/fix, reference change) are
+detected by the poller and drawn as dashed vertical lines on all charts.
 """
 
 import json
@@ -77,9 +84,23 @@ CREATE TABLE IF NOT EXISTS tracking (
     combined      INTEGER,-- number of '+' sources diluting the solution
     nmea_offset   REAL,   -- NMEA offset vs system clock (sourcestats), seconds
     nmea_sd       REAL,   -- NMEA std dev (sourcestats), seconds
-    temp_c        REAL    -- SoC temperature, °C
+    temp_c        REAL,   -- SoC temperature, °C
+    ntp_rate      REAL,   -- NTP requests answered per second (from serverstats)
+    ntp_drop_rate REAL,   -- NTP requests dropped per second
+    clients       INTEGER,-- distinct client addresses in chronyd's client log
+    clients_act   INTEGER -- of those, active within CLIENT_ACTIVE_SECS
 );
 CREATE INDEX IF NOT EXISTS idx_tracking_ts ON tracking (ts);
+
+CREATE TABLE IF NOT EXISTS events (
+    ts     INTEGER,
+    kind   TEXT,    -- reboot | chrony restart | pps lost | pps fix | ref change
+    detail TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_events_ts ON events (ts);
+
+-- tiny key/value store so event detection survives restarts of this service
+CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT);
 """
 
 
@@ -95,7 +116,9 @@ def ensure_columns(conn):
     cols = {r[1] for r in conn.execute("PRAGMA table_info(tracking)")}
     for name, decl in (("selected", "INTEGER"), ("combined", "INTEGER"),
                        ("nmea_offset", "REAL"), ("nmea_sd", "REAL"),
-                       ("temp_c", "REAL")):
+                       ("temp_c", "REAL"), ("ntp_rate", "REAL"),
+                       ("ntp_drop_rate", "REAL"), ("clients", "INTEGER"),
+                       ("clients_act", "INTEGER")):
         if name not in cols:
             conn.execute(f"ALTER TABLE tracking ADD COLUMN {name} {decl}")
     conn.commit()
@@ -119,6 +142,87 @@ def read_temp():
             return int(f.read().strip()) / 1000.0
     except (OSError, ValueError):
         return None
+
+
+def read_serverstats():
+    """Cumulative (ntp_rx, ntp_dropped) counters, or (None, None).
+
+    Field order of `chronyc -c serverstats` starts with NTP packets
+    received / dropped in every chrony version; later fields vary.
+    Needs the admin socket (root or chrony group).
+    """
+    try:
+        row = chronyc_csv("serverstats")[0]
+        return int(row[0]), int(row[1])
+    except Exception:
+        return None, None
+
+
+CLIENT_ACTIVE_SECS = 3600  # "active" = NTP packet within the last hour
+
+
+def read_client_count():
+    """(total, active) distinct non-loopback client addresses, or
+    (None, None). Total is everyone in chronyd's client log (since its
+    last start, LRU-bounded by clientloglimit); active is the subset
+    heard from within CLIENT_ACTIVE_SECS. Needs the admin socket and
+    client logging (chronyd default)."""
+    try:
+        rows = chronyc_csv("-n", "clients")
+        total = active = 0
+        for r in rows:
+            if len(r) < 6 or r[0] in ("127.0.0.1", "::1", "localhost"):
+                continue
+            try:
+                if int(r[1]) > 0:  # has sent at least one NTP packet
+                    total += 1
+                    if float(r[5]) <= CLIENT_ACTIVE_SECS:  # Last column
+                        active += 1
+            except ValueError:
+                continue  # Last is "-" when never seen
+        return total, active
+    except Exception:
+        return None, None
+
+
+def read_boot_id():
+    try:
+        with open("/proc/sys/kernel/random/boot_id") as f:
+            return f.read().strip()
+    except OSError:
+        return None
+
+
+def boot_time():
+    """Unix timestamp of the last boot."""
+    with open("/proc/uptime") as f:
+        return time.time() - float(f.read().split()[0])
+
+
+def chronyd_pid():
+    try:
+        out = subprocess.run(["pidof", "chronyd"], capture_output=True,
+                             text=True, timeout=5).stdout.strip()
+        return int(out.split()[0]) if out else None
+    except Exception:
+        return None
+
+
+# ---------------------------------------------------------------- events ----
+
+def meta_get(conn, key):
+    row = conn.execute("SELECT v FROM meta WHERE k=?", (key,)).fetchone()
+    return row[0] if row else None
+
+
+def meta_set(conn, key, val):
+    conn.execute("INSERT OR REPLACE INTO meta (k, v) VALUES (?, ?)", (key, val))
+
+
+def log_event(conn, ts, kind, detail=""):
+    conn.execute("INSERT INTO events (ts, kind, detail) VALUES (?, ?, ?)",
+                 (int(ts), kind, detail))
+    print(f"event: {kind} {detail}".rstrip(), file=sys.stderr)
 
 
 def poll_once():
@@ -169,6 +273,12 @@ def poll_once():
                 sample["nmea_offset"] = float(row[6])
                 sample["nmea_sd"] = float(row[7])
                 break
+        # NTP server load. Raw cumulative counters ride along under private
+        # keys; the poller turns them into rates and strips them.
+        sample["_ntp_rx"], sample["_ntp_drop"] = read_serverstats()
+        sample["ntp_rate"] = None
+        sample["ntp_drop_rate"] = None
+        sample["clients"], sample["clients_act"] = read_client_count()
         return sample
     except Exception as e:  # chronyd down, parse change, etc.
         print(f"poll failed: {e}", file=sys.stderr)
@@ -179,20 +289,75 @@ def poller(stop_event):
     conn = db_connect()
     conn.executescript(SCHEMA)
     ensure_columns(conn)
+
+    # -- startup detection: things that happened while we weren't running --
+    bid = read_boot_id()
+    prev_bid = meta_get(conn, "boot_id") if bid else None
+    rebooted = bool(bid and prev_bid and prev_bid != bid)
+    if rebooted:
+        log_event(conn, boot_time(), "reboot")
+    if bid:
+        meta_set(conn, "boot_id", bid)
+    pid = chronyd_pid()
+    prev_pid = meta_get(conn, "chronyd_pid")
+    if pid and prev_pid and int(prev_pid) != pid and not rebooted:
+        # chronyd PID changed while we were down (a reboot changes it too,
+        # but the reboot event above already covers that case)
+        log_event(conn, time.time(), "chrony restart")
+    if pid:
+        meta_set(conn, "chronyd_pid", str(pid))
+    conn.commit()
+
+    prev = None            # previous sample, for state-change detection
+    prev_counters = None   # (ts, ntp_rx, ntp_drop) for rate computation
     last_prune = 0.0
     while not stop_event.is_set():
         sample = poll_once()
         if sample:
+            now_ts = sample["ts"]
+
+            # Cumulative counters -> per-second rates. A counter that goes
+            # backwards means chronyd restarted; skip that interval.
+            rx, drop = sample.pop("_ntp_rx"), sample.pop("_ntp_drop")
+            if rx is not None and prev_counters:
+                pts, prx, pdrop = prev_counters
+                dt = now_ts - pts
+                if dt > 0 and rx >= prx:
+                    sample["ntp_rate"] = (rx - prx) / dt
+                    sample["ntp_drop_rate"] = max(0, drop - pdrop) / dt
+            if rx is not None:
+                prev_counters = (now_ts, rx, drop)
+
+            # Event detection: chronyd restart (PID change) and PPS state.
+            cur_pid = chronyd_pid()
+            if cur_pid and pid and cur_pid != pid:
+                log_event(conn, now_ts, "chrony restart")
+                meta_set(conn, "chronyd_pid", str(cur_pid))
+            if cur_pid:
+                pid = cur_pid
+            if prev:
+                if prev["selected"] and not sample["selected"]:
+                    log_event(conn, now_ts, "pps lost", prev.get("ref_name") or "")
+                elif sample["selected"] and not prev["selected"]:
+                    log_event(conn, now_ts, "pps fix", sample.get("ref_name") or "")
+                elif (sample["selected"] and prev["selected"]
+                      and sample["ref_name"] != prev["ref_name"]):
+                    log_event(conn, now_ts, "ref change",
+                              f"{prev['ref_name']} -> {sample['ref_name']}")
+            prev = sample
+
             conn.execute(
                 """INSERT OR REPLACE INTO tracking
                    (ts, stratum, sys_offset, last_offset, rms_offset,
                     freq_ppm, resid_ppm, skew_ppm, root_delay, root_disp,
                     leap, ref_name, src_reach, src_err, selected, combined,
-                    nmea_offset, nmea_sd, temp_c)
+                    nmea_offset, nmea_sd, temp_c, ntp_rate, ntp_drop_rate,
+                    clients, clients_act)
                    VALUES (:ts,:stratum,:sys_offset,:last_offset,:rms_offset,
                            :freq_ppm,:resid_ppm,:skew_ppm,:root_delay,
                            :root_disp,:leap,:ref_name,:src_reach,:src_err,
-                           :selected,:combined,:nmea_offset,:nmea_sd,:temp_c)""",
+                           :selected,:combined,:nmea_offset,:nmea_sd,:temp_c,
+                           :ntp_rate,:ntp_drop_rate,:clients,:clients_act)""",
                 sample,
             )
             conn.commit()
@@ -200,6 +365,7 @@ def poller(stop_event):
         if now - last_prune > 6 * 3600:
             cutoff = int(now - RETENTION_DAYS * 86400)
             conn.execute("DELETE FROM tracking WHERE ts < ?", (cutoff,))
+            conn.execute("DELETE FROM events WHERE ts < ?", (cutoff,))
             conn.commit()
             last_prune = now
         stop_event.wait(POLL_INTERVAL)
@@ -217,7 +383,7 @@ def api_current():
         """SELECT ts, stratum, sys_offset, last_offset, rms_offset, freq_ppm,
                   resid_ppm, skew_ppm, root_delay, root_disp, leap, ref_name,
                   src_reach, src_err, selected, combined, nmea_offset, nmea_sd,
-                  temp_c
+                  temp_c, ntp_rate, ntp_drop_rate, clients, clients_act
            FROM tracking ORDER BY ts DESC LIMIT 1"""
     ).fetchone()
     first = conn.execute("SELECT MIN(ts), COUNT(*) FROM tracking").fetchone()
@@ -227,7 +393,8 @@ def api_current():
     keys = ["ts", "stratum", "sys_offset", "last_offset", "rms_offset",
             "freq_ppm", "resid_ppm", "skew_ppm", "root_delay", "root_disp",
             "leap", "ref_name", "src_reach", "src_err", "selected", "combined",
-            "nmea_offset", "nmea_sd", "temp_c"]
+            "nmea_offset", "nmea_sd", "temp_c", "ntp_rate", "ntp_drop_rate",
+            "clients", "clients_act"]
     d = dict(zip(keys, row))
     d.update(ok=True, hostname=HOSTNAME, poll=POLL_INTERVAL,
              first_ts=first[0], samples=first[1],
@@ -248,7 +415,9 @@ def api_history(hours):
                   AVG(skew_ppm), AVG(root_disp), AVG(src_err),
                   MIN(last_offset), MAX(last_offset),
                   AVG(selected), AVG(combined),
-                  AVG(nmea_offset), AVG(nmea_sd), AVG(temp_c)
+                  AVG(nmea_offset), AVG(nmea_sd), AVG(temp_c),
+                  AVG(ntp_rate), AVG(ntp_drop_rate), AVG(clients),
+                  AVG(clients_act)
            FROM tracking WHERE ts >= :since
            GROUP BY bucket ORDER BY bucket""",
         {"step": step, "since": since},
@@ -258,7 +427,7 @@ def api_history(hours):
     # nulls where no samples exist, so short histories show against the
     # complete time axis instead of stretching to fill it.
     by_bucket = {r[0]: r for r in rows}
-    empty = (None,) * 13
+    empty = (None,) * 17
     buckets = range((since // step) * step, now + step, step)
     padded = [(b,) + tuple(by_bucket.get(b, (b,) + empty)[1:]) for b in buckets]
     return {
@@ -278,7 +447,24 @@ def api_history(hours):
         "nmea_off": [r[11] for r in padded],
         "nmea_sd":  [r[12] for r in padded],
         "temp":     [r[13] for r in padded],
+        "ntp_rate": [r[14] for r in padded],
+        "ntp_drop": [r[15] for r in padded],
+        "clients":  [r[16] for r in padded],
+        "clients_act": [r[17] for r in padded],
     }
+
+
+def api_events(hours):
+    since = int(time.time() - hours * 3600)
+    conn = db_connect()
+    rows = conn.execute(
+        "SELECT ts, kind, detail FROM events WHERE ts >= ? ORDER BY ts",
+        (since,),
+    ).fetchall()
+    conn.close()
+    return {"ok": True, "events": [
+        {"ts": r[0], "kind": r[1], "detail": r[2]} for r in rows
+    ]}
 
 
 def api_sources():
@@ -561,7 +747,11 @@ footer{margin-top:34px;font-size:10px;color:var(--dim);letter-spacing:.08em}
   <div class="chart"><h2 data-tip="The estimated error bound of the currently selected source — the big readout at the top of the page, over time. Gaps mean no source was selected (holdover). A sawtooth pattern means the reference is dropping out and recovering repeatedly.">Source est. error <small>· ns</small></h2><div class="wrap"><canvas id="c_err"></canvas></div></div>
   <div class="chart"><h2 data-tip="Lock %: the fraction of samples in each bucket where a source was selected (*) — dips below 100 mean holdover. Combined: how many additional (+) sources were averaged into the solution; with PPS trusted this should stay at zero, and anything above it means other sources were diluting the clock.">Selection <small>· lock % / combined</small></h2><div class="wrap"><canvas id="c_sel"></canvas></div></div>
   <div class="chart"><h2 data-tip="The NMEA refclock's offset and standard deviation measured against the PPS-disciplined system clock (from sourcestats). NMEA only numbers the PPS pulses, so its precision doesn't affect the clock — but if the offset drifts toward the lock window edge (±delay/2), pulse pairing starts failing.">NMEA vs system <small>· µs</small></h2><div class="wrap"><canvas id="c_nmea"></canvas></div></div>
+  <div class="chart"><h2 data-tip="NTP requests answered and dropped per second, from serverstats counters differenced between samples. Drops should stay at zero — anything above means rate limiting or overload. Reading serverstats needs chronyd's admin socket; a blank chart means chronyc was refused.">NTP requests <small>· req/s</small></h2><div class="wrap"><canvas id="c_ntp"></canvas></div></div>
+  <div class="chart"><h2 data-tip="Distinct client addresses in chronyd's client log. Seen: everyone since chronyd last started (LRU-bounded by clientloglimit, so it creeps upward — IPv6 privacy addresses rotate daily and count repeatedly). Active: the subset heard from within the last hour — the live gauge of who is actually using this server.">NTP clients</h2><div class="wrap"><canvas id="c_ncl"></canvas></div></div>
 </div>
+
+<div class="ranges" id="evlegend" style="display:none;margin-top:14px;margin-bottom:0"></div>
 
 <div class="grid" id="cells" style="margin-top:30px;margin-bottom:0"></div>
 
@@ -642,10 +832,59 @@ const CELLS = [
   ["Root dispersion",c => fmtOffset(c.root_disp)],
   ["NMEA offset",    c => c.nmea_offset==null ? "—" : fmtOffset(c.nmea_offset)],
   ["NMEA std dev",   c => c.nmea_sd==null ? "—" : fmtOffset(c.nmea_sd)],
+  ["NTP rate",       c => c.ntp_rate==null ? "—" : fmt(c.ntp_rate,1)+" <small>req/s</small>"],
+  ["NTP clients",    c => c.clients==null ? "—" :
+                          (c.clients_act ?? "—")+" <small>active · "+c.clients+" seen</small>"],
   ["Leap status",    c => c.leap],
 ];
 
 let charts = {}, hours = 24;
+
+// ---- Event annotations: dashed vertical lines on every chart ----------
+// EVENTS is refreshed with each history load; the window geometry
+// (t0/step/n) maps a timestamp onto the shared category x-axis.
+let EVENTS = [], EVT0 = 0, EVSTEP = 1, EVN = 0;
+const EV_COLORS = {
+  "reboot": "--bad",
+  "chrony restart": "--amber",
+  "pps lost": "--bad",
+  "pps fix": "--vfd",
+  "ref change": "--cyan",
+};
+const eventLines = {
+  id: "eventLines",
+  afterDraw(chart){
+    if (!EVENTS.length || EVN < 2) return;
+    const {ctx, chartArea:a} = chart;
+    for (const ev of EVENTS){
+      const idx = (ev.ts - EVT0) / EVSTEP;
+      if (idx < 0 || idx > EVN - 1) continue;
+      const px = a.left + idx / (EVN - 1) * (a.right - a.left);
+      ctx.save();
+      ctx.strokeStyle = hexToRgba(css(EV_COLORS[ev.kind] || "--dim"), .6);
+      ctx.setLineDash([3,3]);
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(px, a.top);
+      ctx.lineTo(px, a.bottom);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+};
+Chart.register(eventLines);
+
+function updateEvLegend(){
+  const el = document.getElementById("evlegend");
+  const kinds = [...new Set(EVENTS.map(e => e.kind))];
+  if (!kinds.length){ el.style.display = "none"; return; }
+  el.style.display = "flex";
+  el.innerHTML = "<span>Events</span>" + kinds.map(k =>
+    '<span style="font-size:10px;letter-spacing:.12em;text-transform:uppercase;'+
+    'color:'+css(EV_COLORS[k] || "--dim")+'">╎ '+k+
+    ' × '+EVENTS.filter(e => e.kind === k).length+'</span>'
+  ).join("");
+}
 
 function mkChart(id, color, fill){
   const tick = {color: css("--dim"), font:{family:"ui-monospace, Menlo, Consolas, monospace",size:10}, maxTicksLimit:6};
@@ -699,6 +938,48 @@ function initCharts(){
     }
   });
 
+  // NTP server load: requests + drops per second, one axis.
+  charts.ntp = new Chart(document.getElementById("c_ntp"), {
+    type:"line",
+    data:{labels:[],datasets:[
+      {label:"req/s",data:[],borderColor:g,borderWidth:1.4,pointRadius:0,
+       tension:.25,fill:true,backgroundColor:hexToRgba(g,.08)},
+      {label:"drop/s",data:[],borderColor:css("--bad"),borderWidth:1.4,
+       pointRadius:0,tension:.25},
+    ]},
+    options:{
+      responsive:true,maintainAspectRatio:false,animation:false,
+      plugins:{legend:{display:true,labels:{color:css("--dim"),
+        font:{family:"ui-monospace, Menlo, Consolas, monospace",size:10},boxWidth:14,boxHeight:2}},
+        tooltip:{intersect:false,mode:"index"}},
+      scales:{
+        x:{ticks:tick,grid:{color:css("--line")}},
+        y:{min:0,ticks:tick,grid:{color:css("--line")}}
+      }
+    }
+  });
+
+  // NTP clients: total seen (since chronyd start) vs active in last hour.
+  charts.ncl = new Chart(document.getElementById("c_ncl"), {
+    type:"line",
+    data:{labels:[],datasets:[
+      {label:"seen",data:[],borderColor:cy,borderWidth:1.4,pointRadius:0,
+       stepped:true},
+      {label:"active 1h",data:[],borderColor:g,borderWidth:1.4,pointRadius:0,
+       stepped:true,fill:true,backgroundColor:hexToRgba(g,.08)},
+    ]},
+    options:{
+      responsive:true,maintainAspectRatio:false,animation:false,
+      plugins:{legend:{display:true,labels:{color:css("--dim"),
+        font:{family:"ui-monospace, Menlo, Consolas, monospace",size:10},boxWidth:14,boxHeight:2}},
+        tooltip:{intersect:false,mode:"index"}},
+      scales:{
+        x:{ticks:tick,grid:{color:css("--line")}},
+        y:{min:0,ticks:{...tick,precision:0},grid:{color:css("--line")}}
+      }
+    }
+  });
+
   // NMEA health: offset + std dev vs the PPS-disciplined system clock, one axis.
   charts.nmea = new Chart(document.getElementById("c_nmea"), {
     type:"line",
@@ -730,9 +1011,16 @@ function labelsFor(ts){
 }
 
 async function loadHistory(){
-  const r = await fetch("/api/history?hours="+hours);
+  const [r, re] = await Promise.all([
+    fetch("/api/history?hours="+hours),
+    fetch("/api/events?hours="+hours),
+  ]);
   const h = await r.json();
+  const ev = await re.json().catch(()=>({ok:false}));
   if (!h.ok) return;
+  EVENTS = ev.ok ? ev.events : [];
+  EVT0 = h.t[0]; EVSTEP = h.step; EVN = h.t.length;
+  updateEvLegend();
   const L = labelsFor(h.t);
   const scale = (arr, f) => arr.map(v => v == null ? null : v * f);
   const put = (c, data) => { c.data.labels=L; c.data.datasets[0].data=data; c.update(); };
@@ -751,6 +1039,14 @@ async function loadHistory(){
   charts.nmea.data.datasets[0].data = scale(h.nmea_off, 1e6);
   charts.nmea.data.datasets[1].data = scale(h.nmea_sd, 1e6);
   charts.nmea.update();
+  charts.ntp.data.labels = L;
+  charts.ntp.data.datasets[0].data = h.ntp_rate;
+  charts.ntp.data.datasets[1].data = h.ntp_drop;
+  charts.ntp.update();
+  charts.ncl.data.labels = L;
+  charts.ncl.data.datasets[0].data = h.clients;
+  charts.ncl.data.datasets[1].data = h.clients_act;
+  charts.ncl.update();
 }
 
 // Running clock. On each /api/current refresh we anchor to the NTP server's
@@ -936,8 +1232,8 @@ const sysDark = matchMedia("(prefers-color-scheme: dark)");
 
 function restyleCharts(){
   const g=css("--vfd"), a=css("--amber"), cy=css("--cyan");
-  const ln=css("--line"), dm=css("--dim");
-  const palette = {off:[g],rms:[g],frq:[a],tmp:[a],skw:[a],dsp:[cy],err:[cy],sel:[g,a],nmea:[g,a]};
+  const ln=css("--line"), dm=css("--dim"), bd=css("--bad");
+  const palette = {off:[g],rms:[g],frq:[a],tmp:[a],skw:[a],dsp:[cy],err:[cy],sel:[g,a],nmea:[g,a],ntp:[g,bd],ncl:[cy,g]};
   for (const [k, cols] of Object.entries(palette)){
     const c = charts[k]; if (!c) continue;
     c.data.datasets.forEach((ds,i)=>{
@@ -952,6 +1248,7 @@ function restyleCharts(){
       c.options.plugins.legend.labels.color = dm;
     c.update();
   }
+  updateEvLegend();
 }
 
 function applyTheme(){
@@ -1040,6 +1337,11 @@ class Handler(BaseHTTPRequestHandler):
                 hours = float(q.get("hours", ["24"])[0])
                 hours = max(0.1, min(hours, RETENTION_DAYS * 24))
                 self._send(200, "application/json", json.dumps(api_history(hours)).encode())
+            elif url.path == "/api/events":
+                q = parse_qs(url.query)
+                hours = float(q.get("hours", ["24"])[0])
+                hours = max(0.1, min(hours, RETENTION_DAYS * 24))
+                self._send(200, "application/json", json.dumps(api_events(hours)).encode())
             else:
                 self._send(404, "text/plain", b"not found")
         except BrokenPipeError:
@@ -1055,6 +1357,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             conn = db_connect()
             conn.execute("DELETE FROM tracking")
+            conn.execute("DELETE FROM events")
             conn.commit()
             conn.execute("VACUUM")
             conn.close()
