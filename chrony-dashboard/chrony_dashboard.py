@@ -526,7 +526,7 @@ PAGE = r"""<!DOCTYPE html>
   --bad:#b3372c;
 }
 :root[data-theme="truetime"]{
-  --bg:#d5d0c1;        /* chassis beige */
+  --bg:#e9e4d3;        /* chassis beige (bright 90s putty) */
   --panel:#b4c74d;     /* backlit STN LCD green */
   --line:#7f8747;      /* darker LCD/engraving lines */
   --ink:#33401a;
@@ -537,6 +537,10 @@ PAGE = r"""<!DOCTYPE html>
   --amber:#7d4a10;
   --cyan:#1c5a52;
   --bad:#a3231a;
+  /* front-panel silkscreen: light geometric caps, wide tracking
+     (matches the XL-AK's "STATUS" / "GPS TIME & FREQUENCY" lettering) */
+  --ttfont:"Century Gothic","CenturyGothic","Avenir Next",Avenir,
+    Futura,"Futura PT","URW Gothic","Avant Garde",Questrial,Verdana,sans-serif;
 }
 *{box-sizing:border-box;margin:0;padding:0}
 body{
@@ -651,9 +655,26 @@ footer{margin-top:34px;font-size:10px;color:var(--dim);letter-spacing:.08em}
 .sethint{font-size:10px;color:var(--dim);letter-spacing:.04em}
 
 /* ---- TrueTime theme component styling -------------------------------- */
-#ttlogo{display:none}
+#ttlogo,#ttcap{display:none}
 [data-theme="truetime"] #ttlogo{display:block}
+[data-theme="truetime"] #ttcap{display:inline;font-family:var(--ttfont);
+  font-weight:400;font-size:11px;letter-spacing:.34em;color:#1e2f8f;
+  text-transform:uppercase;white-space:nowrap;align-self:center}
 [data-theme="truetime"] .mast h1{display:none}
+/* silkscreen lettering for engraved labels (values stay monospace/DSEG7) */
+[data-theme="truetime"] .lbl,
+[data-theme="truetime"] .cell .k,
+[data-theme="truetime"] .ledlbl,
+[data-theme="truetime"] .chart h2,
+[data-theme="truetime"] .debug h2,
+[data-theme="truetime"] .settings summary,
+[data-theme="truetime"] .setlbl,
+[data-theme="truetime"] .ranges span,
+[data-theme="truetime"] .mast .meta,
+[data-theme="truetime"] #srctbl th,
+[data-theme="truetime"] .ranges button,
+[data-theme="truetime"] .seg button,
+[data-theme="truetime"] .danger{font-family:var(--ttfont)}
 [data-theme="truetime"] .readout .val{
   display:inline-block;background:var(--panel);color:var(--bright);
   border:2px solid #8a8574;border-radius:4px;padding:8px 26px;
@@ -667,13 +688,14 @@ footer{margin-top:34px;font-size:10px;color:var(--dim);letter-spacing:.08em}
 [data-theme="truetime"] .clock .utc,
 [data-theme="truetime"] .clock .loc{
   font-family:"DSEG7",ui-monospace,Menlo,monospace;color:#ff2f00}
-[data-theme="truetime"] .clock .loc{color:#d94a17;font-size:14px;margin-top:8px}
+[data-theme="truetime"] .clock .loc{color:#d94a17;font-size:14px;margin-top:8px;
+  text-align:center}
 [data-theme="truetime"] .clock .utc small,
 [data-theme="truetime"] .clock .loc small{
-  font-family:ui-monospace,Menlo,Consolas,monospace;color:#8a5c42}
+  font-family:var(--ttfont);color:#8a5c42}
 [data-theme="truetime"] .clock .ap{
-  font-family:ui-monospace,Menlo,Consolas,monospace;
-  font-size:12px;font-weight:600;color:#d94a17;letter-spacing:.08em}
+  font-family:var(--ttfont);
+  font-size:12px;font-weight:400;color:#d94a17;letter-spacing:.08em}
 [data-theme="truetime"] .ranges button,
 [data-theme="truetime"] .seg button{
   background:#1d1d1b;color:#eae6d8;border-color:#000}
@@ -700,15 +722,12 @@ footer{margin-top:34px;font-size:10px;color:var(--dim);letter-spacing:.08em}
 <body>
 <div class="mast">
   <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
-    <svg id="ttlogo" viewBox="0 0 142 32" width="126" role="img" aria-label="TrueTime Pi logo">
-      <text x="2" y="20" textLength="96" lengthAdjust="spacingAndGlyphs"
-        font-family="Georgia,'Times New Roman',serif" font-style="italic"
-        font-weight="700" font-size="20" fill="#1e2f8f">TrueTime</text>
-      <text x="106" y="20" textLength="20" lengthAdjust="spacingAndGlyphs"
-        font-family="Georgia,'Times New Roman',serif" font-style="italic"
-        font-weight="700" font-size="20" fill="#a3231a">Pi</text>
-      <path d="M8 25 H122 L118 28 H2 Z" fill="#1e2f8f"/>
+    <svg id="ttlogo" viewBox="25 115 1140 205" width="150" role="img" aria-label="TrueTime Pi logo">
+      <!-- "TrueTime" traced from the XL-AK front panel silkscreen; "Pi" drawn to match -->
+      <path fill="#17246e" d="M72 126c-6 1-9 5-15 14c-11 21-12 21 25 21c21 0 22 0 24 2c2 3 1 6-3 14c-1 1-3 4-4 5c0 2-2 5-4 7c-1 3-3 6-4 8c-3 4-3 6-7 11c-1 2-4 7-5 10c-2 3-5 8-6 10c-1 2-4 6-5 9c-4 6-10 16-12 19c-2 3-4 6-7 12c-3 6-7 13-10 19c-7 10-5 12 10 12c13 1 16 0 21-8c0-1 3-5 4-7c2-3 4-6 5-8c1-1 3-4 4-6c1-1 3-4 4-6c1-2 3-5 4-7c4-5 6-9 8-14c2-3 4-6 5-8c2-2 4-6 5-9c2-3 4-6 4-7c1-2 2-4 3-5c1-2 2-5 4-6c3-5 4-7 6-11c1-2 4-6 5-8c1-3 4-6 5-9c8-15 10-17 18-18c3-1 13-1 19-1c3 1 7 1 16 1l12 0l1-1c4-1 7-4 11-11c1-2 3-6 4-8c4-8 4-8 4-10l1-1l-1-1c-2-2-1-2-32-2c-21 0-29 0-33 0c-4-1-14-1-33-1c-17 0-27 0-28-1c-2 0-21 0-23 0z M461 130c-5 1-7 3-12 12c-1 3-3 6-4 8c-2 2-3 4-3 5l-1 2l0 2l0 2l0 1c1 0 2 1 3 2c1 0 8 0 20 0c29 0 31 0 32 4l1 2l0 1c0 2-1 4-4 9c-2 2-3 5-4 7c-2 4-3 6-8 13c-2 4-5 9-6 10c-1 2-3 5-4 7c-1 2-3 6-5 9c-1 2-3 5-4 7c-2 3-3 5-5 9c-1 1-3 4-4 6c-1 2-3 5-4 7c-1 2-3 5-4 8c-2 2-4 5-5 7c-1 2-3 6-6 10c-3 5-5 8-6 12l-3 6l0 1c0 5 5 6 19 5c10 0 12-1 18-12c1-2 3-4 4-6c3-3 4-5 8-11c3-7 7-13 11-19c1-2 3-6 4-8c2-3 4-7 6-10c2-4 4-7 5-9c1-2 3-5 4-7c2-3 4-6 4-7c1-1 3-5 5-8c4-5 10-17 14-23c2-3 4-6 9-12c2-3 4-5 9-5l2-1l22 0l22 0l2-1c4-1 7-4 14-17c1-2 3-5 4-7c3-5 3-7 0-9c-1 0-2 0-10 0l-5 0l-6 0l-5-1l-24 0l-24 0l-4 0l-4-1l-10 0c-7 1-11 1-14 0c-6 0-42 0-44 0z M197 176c-1 1-6 1-9 1c-18 1-31 9-40 23c-1 2-3 5-4 6c0 1-2 5-4 7c-1 3-3 6-4 8c-3 5-4 6-6 10c-2 2-3 5-4 7c-1 2-3 4-4 6c-1 1-2 4-3 6c-5 8-7 12-10 18c-5 7-5 8-8 12c-8 14-9 17-6 19l1 0l2 0c1 0 3 0 5 0c2 0 4 0 6 0c13 3 16 1 25-15c1-3 3-6 4-7c3-4 4-6 7-12c2-3 4-7 6-10c3-4 4-6 7-12c1-1 2-4 4-6c1-2 3-5 4-7c1-2 3-5 4-6c0-2 2-5 3-6c3-6 5-9 9-12c4-2 6-3 13-3c12 0 14-1 20-15l3-5l0-2c0-2-1-3-4-4c-4-1-13-1-17-1z M247 177c-5 1-7 4-12 12c-1 2-3 5-5 8c-1 2-4 5-5 8c-1 2-2 5-3 6c0 1-2 4-3 6c-2 3-4 6-5 9c-3 3-4 5-7 12c-1 2-2 3-4 6c-1 2-3 4-3 5c-3 6-8 15-11 19c-3 5-4 6-5 9l-1 2l0 4l0 3l1 2c2 7 6 11 12 13l1 0l7 0c4 0 8 0 9 1c1 0 4 0 6 0l4 0l3-1c4-1 4-1 7 0c7 1 12 2 16 1c13-3 14-3 22-9c9-7 12-9 17-20c1-2 3-4 4-6c2-3 3-4 5-7c2-5 7-13 10-17c5-7 8-12 10-16c3-6 5-10 12-20c1-3 4-7 5-9c2-2 4-6 5-8c3-4 3-6 3-8l0-1l-1-1c0-1-1-1-2-1l-1-1l-11 0l-11 0l-2 1c-5 1-7 3-11 11c-3 4-3 4-6 9c-3 4-5 8-7 13c-2 2-3 5-5 7c-2 4-3 5-6 9c-1 2-3 7-6 11c-2 4-5 9-6 11c-7 11-12 16-18 17l-1 1l-5 0c-7 0-10-1-12-3l-1-2l0-1c0-3 1-5 6-13c2-3 4-7 5-9c2-4 8-14 11-17c1-2 2-5 4-8c1-2 3-4 4-6c4-6 13-23 14-25c1-4 0-6-4-7c-2 0-21 0-23 0z M393 179c-8 1-18 4-22 7c-10 6-16 14-22 24c-1 2-3 4-3 5c-1 1-3 4-4 7c-2 3-5 7-6 10c-1 2-4 5-5 8c-1 2-3 6-5 8c-3 5-6 9-9 16c-2 3-4 6-5 7c-5 8-6 16-2 22c6 10 7 10 39 10c21 0 21 0 25-1c4-2 4-2 9-2c8-1 9-2 17-7c7-6 10-11 17-24c3-6 0-8-16-8c-11 0-12 0-17 3c-9 5-21 7-26 2c-4-4 2-16 10-18c3 0 11-1 15 0c5 0 41 0 43 0c5-1 10-7 21-28c1-2 3-6 5-9c6-10 7-14 5-19c-4-9-10-12-24-13c-13 0-18 0-23 1c-3 1-4 1-8 0c-3-1-7-1-9-1zM410 207c8 4 0 17-11 18c-12 2-17 1-17-5c0-9 8-14 22-14l4 0l2 1z M559 181c-8 1-13 5-21 22c-1 3-3 6-6 10c-5 8-6 10-10 18c-2 5-4 8-6 11c-5 7-8 11-10 15c-1 2-3 5-3 6c-2 2-2 3-4 8c-1 2-3 5-4 7c-2 2-3 5-4 7c-1 1-2 4-4 6c-3 5-3 6-3 8l0 2l0 1c1 1 1 1 2 2l1 0l5 1c16 0 19 0 22-4c4-4 10-12 13-17c2-5 7-12 10-16c1-3 3-6 5-9c1-2 3-6 4-8c5-7 9-14 11-18c1-3 3-6 4-7c1-2 4-5 5-8c2-2 4-6 5-8c14-22 15-27 10-28c-2-1-18-2-22-1z M643 182c-2 0-5 0-8 0c-10 0-14 1-24 8c-4 2-6 4-10 8c-5 6-5 6-12 18c-2 3-4 7-5 9c-1 1-3 4-4 5c-3 5-7 13-8 16c-3 5-6 10-9 15l-4 5l-4 8l-4 8l-3 6c-10 15-8 20 6 17c1 0 5-1 8-1c9-1 11-2 14-5c2-3 11-18 14-23c1-3 3-6 4-7c2-4 4-6 6-9c1-2 2-4 3-6c1-1 3-4 4-5c1-2 2-6 4-8c19-33 19-33 33-33l6 0l1 0c5 2 6 7 2 13c-1 2-4 6-6 10c-2 5-5 9-7 11c-2 3-3 6-5 10c-1 3-2 4-5 8c-2 4-4 8-6 11c-1 2-2 5-3 6c-1 2-3 4-4 6c-1 2-2 4-3 6c-6 9-7 14-4 16c4 1 23 1 26 0c3-2 11-12 18-24c1-2 3-6 4-7c2-2 3-5 4-7c2-3 3-6 5-8c3-5 8-12 10-16c1-1 2-4 3-6c3-4 4-6 6-9c7-14 13-19 22-19c17 0 18 3 9 18c-1 2-3 6-5 9c-2 4-2 5-6 10c-1 1-3 5-5 9c-2 4-5 8-6 10c-3 5-6 9-8 14c-3 5-5 9-9 15c-7 11-5 13 16 13l7 0l1-1c3-1 4-2 9-8c1-3 3-6 4-7c1-2 3-5 4-7c2-2 3-5 4-6c1-2 2-4 3-5c1-2 2-4 3-6c1-1 3-4 4-5c1-2 3-5 5-8c1-2 3-5 4-7c1-2 4-6 5-9c4-6 5-7 7-12c2-1 3-4 4-6c6-8 8-13 9-16c3-11-4-21-16-22c-3 0-104 0-108 0z M825 184c-14 2-25 8-31 17c-2 2-4 5-6 8c-5 7-6 8-9 13c-1 3-4 7-6 10c-2 3-4 7-5 9c-2 3-2 4-5 8c-1 1-2 3-4 6c-1 2-2 5-4 7c-4 6-9 16-12 22l-1 2l0 3l0 2l2 3c3 9 5 11 11 12l1 1l13 0c7 0 16 0 20 1c12 0 18 0 25-2c9-1 20-8 25-14c4-5 5-7 8-11c1-2 2-5 3-6c6-8 3-9-17-10c-10 0-11 0-17 4c-5 3-8 4-15 4c-11 0-14-4-7-14c4-7 10-9 23-7c6 0 15 0 30 0l12 0l2-1c6-2 10-6 17-21c1-2 3-6 5-8c8-13 9-17 8-23c-1-9-6-14-15-15c-3 0-48 0-51 0zM844 210c2 1 4 3 4 6l0 1l-1 2c-4 8-11 12-21 12c-7 0-10-2-10-6c0-9 11-16 24-16l3 0l1 1z"/>
+      <path fill="#a3231a" d="M1115 181c-8 1-12 5-21 22c-1 3-3 6-6 10c-5 8-6 10-10 18c-2 5-4 8-6 11c-5 7-8 11-10 15c-1 2-3 5-3 6c-2 2-2 3-4 8c-1 2-3 5-4 7c-1 2-3 5-4 7c-1 1-2 4-3 6c-3 5-4 6-4 8l0 2l0 1c1 1 1 1 2 2l1 0l5 1c16 0 19 0 22-4c4-4 10-12 13-17c3-5 7-12 10-16c1-3 3-6 5-9c1-2 3-6 5-8c4-7 8-14 10-18c2-3 3-6 4-7c2-2 4-5 5-8c2-2 4-6 5-8c14-22 15-27 10-28c-2-1-18-2-22-1z M915 307.8L892 307.8Q885 307.8 889.1 300.8L986.2 136Q992.1 126 1002.1 126L1083.1 126Q1117.1 126 1097 160L1075.2 197Q1055.2 231 1021.2 231L967.2 231L926.1 300.8Q922 307.8 915 307.8zM1004.3 168L991.9 189Q985.5 200 996.5 200L1028 200Q1039 200 1045.4 189L1057.8 168Q1064.3 157 1053.3 157L1021.8 157Q1010.8 157 1004.3 168z"/>
     </svg>
+    <span id="ttcap">GPS&nbsp;TIME&nbsp;&amp;&nbsp;FREQUENCY</span>
     <h1><b id="host">·</b>&nbsp; chrony tracking</h1>
   </div>
   <div class="meta" id="meta">connecting…</div>
