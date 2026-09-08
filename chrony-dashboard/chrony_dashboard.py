@@ -12,6 +12,8 @@ Environment variables (all optional):
                                                   or ./chrony.db)
   DASH_POLL        poll interval, seconds        (default: 30)
   DASH_RETENTION   days of history to keep       (default: 180)
+  DASH_IFACE       network interface(s) to count for the throughput
+                   chart, comma-separated (default: all except lo)
 
 NTP server stats (req/s, drops/s, unique clients) come from `chronyc
 serverstats` and `chronyc clients`, which need chronyd's admin socket —
@@ -19,8 +21,15 @@ run as root or a member of the chrony group (`clients` also requires
 client logging to be enabled in chronyd, which it is by default).
 Events (reboot, chrony restart, PPS lost/fix, reference change) are
 detected by the poller and drawn as dashed vertical lines on all charts.
+Network throughput (rx/tx bytes per second from /proc/net/dev) is logged
+alongside so NTP traffic surges can be correlated with link load.
+
+CSV export: GET /api/export.csv?hours=N (rows in a window) or
+/api/export.csv (everything). To reset the database, stop the service and
+delete the .db file (plus its -wal/-shm siblings); see README/notes.
 """
 
+import html
 import json
 import os
 import signal
@@ -37,6 +46,8 @@ from urllib.parse import urlparse, parse_qs
 PORT = int(os.environ.get("DASH_PORT", "80"))
 POLL_INTERVAL = int(os.environ.get("DASH_POLL", "30"))
 RETENTION_DAYS = int(os.environ.get("DASH_RETENTION", "180"))
+NET_IFACES = [i.strip() for i in os.environ.get("DASH_IFACE", "").split(",")
+              if i.strip()]  # empty = every interface except lo
 
 # Clock display formats for the dashboard page.
 LOCAL_CLOCK_12_HOUR = True    # local time as 12-hour with AM/PM (False = 24-hour)
@@ -88,7 +99,9 @@ CREATE TABLE IF NOT EXISTS tracking (
     ntp_rate      REAL,   -- NTP requests answered per second (from serverstats)
     ntp_drop_rate REAL,   -- NTP requests dropped per second
     clients       INTEGER,-- distinct client addresses in chronyd's client log
-    clients_act   INTEGER -- of those, active within CLIENT_ACTIVE_SECS
+    clients_act   INTEGER,-- of those, active within CLIENT_ACTIVE_SECS
+    net_rx_rate   REAL,   -- bytes/s received (all non-lo or DASH_IFACE)
+    net_tx_rate   REAL    -- bytes/s transmitted
 );
 CREATE INDEX IF NOT EXISTS idx_tracking_ts ON tracking (ts);
 
@@ -118,7 +131,8 @@ def ensure_columns(conn):
                        ("nmea_offset", "REAL"), ("nmea_sd", "REAL"),
                        ("temp_c", "REAL"), ("ntp_rate", "REAL"),
                        ("ntp_drop_rate", "REAL"), ("clients", "INTEGER"),
-                       ("clients_act", "INTEGER")):
+                       ("clients_act", "INTEGER"),
+                       ("net_rx_rate", "REAL"), ("net_tx_rate", "REAL")):
         if name not in cols:
             conn.execute(f"ALTER TABLE tracking ADD COLUMN {name} {decl}")
     conn.commit()
@@ -182,6 +196,30 @@ def read_client_count():
                 continue  # Last is "-" when never seen
         return total, active
     except Exception:
+        return None, None
+
+
+def read_net_counters():
+    """Cumulative (rx_bytes, tx_bytes) summed over NET_IFACES (or every
+    interface except lo), from /proc/net/dev. (None, None) on failure."""
+    try:
+        rx = tx = 0
+        with open("/proc/net/dev") as f:
+            for line in f.readlines()[2:]:
+                name, _, rest = line.partition(":")
+                name = name.strip()
+                if not rest:
+                    continue
+                if NET_IFACES:
+                    if name not in NET_IFACES:
+                        continue
+                elif name == "lo":
+                    continue
+                fields = rest.split()
+                rx += int(fields[0])
+                tx += int(fields[8])
+        return rx, tx
+    except (OSError, ValueError, IndexError):
         return None, None
 
 
@@ -279,6 +317,9 @@ def poll_once():
         sample["ntp_rate"] = None
         sample["ntp_drop_rate"] = None
         sample["clients"], sample["clients_act"] = read_client_count()
+        sample["_net_rx"], sample["_net_tx"] = read_net_counters()
+        sample["net_rx_rate"] = None
+        sample["net_tx_rate"] = None
         return sample
     except Exception as e:  # chronyd down, parse change, etc.
         print(f"poll failed: {e}", file=sys.stderr)
@@ -310,6 +351,7 @@ def poller(stop_event):
 
     prev = None            # previous sample, for state-change detection
     prev_counters = None   # (ts, ntp_rx, ntp_drop) for rate computation
+    prev_net = None        # (ts, rx_bytes, tx_bytes) for throughput
     last_prune = 0.0
     while not stop_event.is_set():
         sample = poll_once()
@@ -327,6 +369,18 @@ def poller(stop_event):
                     sample["ntp_drop_rate"] = max(0, drop - pdrop) / dt
             if rx is not None:
                 prev_counters = (now_ts, rx, drop)
+
+            # Same treatment for interface byte counters (they wrap or
+            # reset on reboot / interface bounce; skip that interval).
+            nrx, ntx = sample.pop("_net_rx"), sample.pop("_net_tx")
+            if nrx is not None and prev_net:
+                pts, prx, ptx = prev_net
+                dt = now_ts - pts
+                if dt > 0 and nrx >= prx and ntx >= ptx:
+                    sample["net_rx_rate"] = (nrx - prx) / dt
+                    sample["net_tx_rate"] = (ntx - ptx) / dt
+            if nrx is not None:
+                prev_net = (now_ts, nrx, ntx)
 
             # Event detection: chronyd restart (PID change) and PPS state.
             cur_pid = chronyd_pid()
@@ -352,12 +406,13 @@ def poller(stop_event):
                     freq_ppm, resid_ppm, skew_ppm, root_delay, root_disp,
                     leap, ref_name, src_reach, src_err, selected, combined,
                     nmea_offset, nmea_sd, temp_c, ntp_rate, ntp_drop_rate,
-                    clients, clients_act)
+                    clients, clients_act, net_rx_rate, net_tx_rate)
                    VALUES (:ts,:stratum,:sys_offset,:last_offset,:rms_offset,
                            :freq_ppm,:resid_ppm,:skew_ppm,:root_delay,
                            :root_disp,:leap,:ref_name,:src_reach,:src_err,
                            :selected,:combined,:nmea_offset,:nmea_sd,:temp_c,
-                           :ntp_rate,:ntp_drop_rate,:clients,:clients_act)""",
+                           :ntp_rate,:ntp_drop_rate,:clients,:clients_act,
+                           :net_rx_rate,:net_tx_rate)""",
                 sample,
             )
             conn.commit()
@@ -383,7 +438,8 @@ def api_current():
         """SELECT ts, stratum, sys_offset, last_offset, rms_offset, freq_ppm,
                   resid_ppm, skew_ppm, root_delay, root_disp, leap, ref_name,
                   src_reach, src_err, selected, combined, nmea_offset, nmea_sd,
-                  temp_c, ntp_rate, ntp_drop_rate, clients, clients_act
+                  temp_c, ntp_rate, ntp_drop_rate, clients, clients_act,
+                  net_rx_rate, net_tx_rate
            FROM tracking ORDER BY ts DESC LIMIT 1"""
     ).fetchone()
     first = conn.execute("SELECT MIN(ts), COUNT(*) FROM tracking").fetchone()
@@ -394,7 +450,7 @@ def api_current():
             "freq_ppm", "resid_ppm", "skew_ppm", "root_delay", "root_disp",
             "leap", "ref_name", "src_reach", "src_err", "selected", "combined",
             "nmea_offset", "nmea_sd", "temp_c", "ntp_rate", "ntp_drop_rate",
-            "clients", "clients_act"]
+            "clients", "clients_act", "net_rx_rate", "net_tx_rate"]
     d = dict(zip(keys, row))
     d.update(ok=True, hostname=HOSTNAME, poll=POLL_INTERVAL,
              first_ts=first[0], samples=first[1],
@@ -417,7 +473,7 @@ def api_history(hours):
                   AVG(selected), AVG(combined),
                   AVG(nmea_offset), AVG(nmea_sd), AVG(temp_c),
                   AVG(ntp_rate), AVG(ntp_drop_rate), AVG(clients),
-                  AVG(clients_act)
+                  AVG(clients_act), AVG(net_rx_rate), AVG(net_tx_rate)
            FROM tracking WHERE ts >= :since
            GROUP BY bucket ORDER BY bucket""",
         {"step": step, "since": since},
@@ -427,7 +483,7 @@ def api_history(hours):
     # nulls where no samples exist, so short histories show against the
     # complete time axis instead of stretching to fill it.
     by_bucket = {r[0]: r for r in rows}
-    empty = (None,) * 17
+    empty = (None,) * 19
     buckets = range((since // step) * step, now + step, step)
     padded = [(b,) + tuple(by_bucket.get(b, (b,) + empty)[1:]) for b in buckets]
     return {
@@ -451,6 +507,8 @@ def api_history(hours):
         "ntp_drop": [r[15] for r in padded],
         "clients":  [r[16] for r in padded],
         "clients_act": [r[17] for r in padded],
+        "net_rx":   [r[18] for r in padded],
+        "net_tx":   [r[19] for r in padded],
     }
 
 
@@ -465,6 +523,39 @@ def api_events(hours):
     return {"ok": True, "events": [
         {"ts": r[0], "kind": r[1], "detail": r[2]} for r in rows
     ]}
+
+
+EXPORT_COLS = ["ts", "stratum", "sys_offset", "last_offset", "rms_offset",
+               "freq_ppm", "resid_ppm", "skew_ppm", "root_delay", "root_disp",
+               "leap", "ref_name", "src_reach", "src_err", "selected",
+               "combined", "nmea_offset", "nmea_sd", "temp_c", "ntp_rate",
+               "ntp_drop_rate", "clients", "clients_act", "net_rx_rate",
+               "net_tx_rate"]
+
+
+def api_export_csv(hours=None):
+    """Raw (not downsampled) tracking rows as CSV bytes. hours=None dumps
+    the whole table; otherwise rows within the last `hours`. A human-
+    readable UTC timestamp is prepended to the raw unix `ts` column."""
+    import csv
+    import io
+    from datetime import datetime, timezone
+    conn = db_connect()
+    cols = ", ".join(EXPORT_COLS)
+    if hours is None:
+        cur = conn.execute(f"SELECT {cols} FROM tracking ORDER BY ts")
+    else:
+        since = int(time.time() - hours * 3600)
+        cur = conn.execute(f"SELECT {cols} FROM tracking WHERE ts >= ? ORDER BY ts",
+                           (since,))
+    buf = io.StringIO()
+    w = csv.writer(buf, lineterminator="\n")
+    w.writerow(["utc"] + EXPORT_COLS)
+    for row in cur:
+        utc = datetime.fromtimestamp(row[0], timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        w.writerow([utc] + list(row))
+    conn.close()
+    return buf.getvalue().encode()
 
 
 def api_sources():
@@ -489,7 +580,7 @@ PAGE = r"""<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>truetime-pi · chrony</title>
+<title>__HOSTNAME__ · chrony</title>
 <script src="/chart.umd.min.js"></script>
 <style>
 /* 7-segment LED font for the TrueTime theme clock. Loads from the internet
@@ -643,15 +734,15 @@ footer{margin-top:34px;font-size:10px;color:var(--dim);letter-spacing:.08em}
 .setlbl{font-size:10px;letter-spacing:.22em;text-transform:uppercase;
   color:var(--dim);min-width:60px}
 .seg{display:flex;gap:6px}
-.seg button,.danger{
+.seg button,.seg a{
   font:600 11px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.1em;
   color:var(--ink);background:var(--bg);border:1px solid var(--line);
   border-radius:3px;padding:7px 12px;cursor:pointer}
 .seg button:hover{border-color:var(--vfd)}
 .seg button.on{color:var(--bg);background:var(--vfd);border-color:var(--vfd)}
-.seg button:focus-visible,.danger:focus-visible{outline:2px solid var(--vfd);outline-offset:2px}
-.danger{color:var(--bad);border-color:var(--bad)}
-.danger:hover{color:var(--bg);background:var(--bad)}
+.seg button:focus-visible,.seg a:focus-visible{outline:2px solid var(--vfd);outline-offset:2px}
+.seg a{text-decoration:none;display:inline-block}
+.seg a:hover{border-color:var(--vfd)}
 .sethint{font-size:10px;color:var(--dim);letter-spacing:.04em}
 
 /* ---- TrueTime theme component styling -------------------------------- */
@@ -674,7 +765,7 @@ footer{margin-top:34px;font-size:10px;color:var(--dim);letter-spacing:.08em}
 [data-theme="truetime"] #srctbl th,
 [data-theme="truetime"] .ranges button,
 [data-theme="truetime"] .seg button,
-[data-theme="truetime"] .danger{font-family:var(--ttfont)}
+[data-theme="truetime"] .seg a{font-family:var(--ttfont)}
 [data-theme="truetime"] .readout .val{
   display:inline-block;background:var(--panel);color:var(--bright);
   border:2px solid #8a8574;border-radius:4px;padding:8px 26px;
@@ -697,7 +788,8 @@ footer{margin-top:34px;font-size:10px;color:var(--dim);letter-spacing:.08em}
   font-family:var(--ttfont);
   font-size:12px;font-weight:400;color:#d94a17;letter-spacing:.08em}
 [data-theme="truetime"] .ranges button,
-[data-theme="truetime"] .seg button{
+[data-theme="truetime"] .seg button,
+[data-theme="truetime"] .seg a{
   background:#1d1d1b;color:#eae6d8;border-color:#000}
 [data-theme="truetime"] .ranges button.on,
 [data-theme="truetime"] .seg button.on{
@@ -768,6 +860,7 @@ footer{margin-top:34px;font-size:10px;color:var(--dim);letter-spacing:.08em}
   <div class="chart"><h2 data-tip="The NMEA refclock's offset and standard deviation measured against the PPS-disciplined system clock (from sourcestats). NMEA only numbers the PPS pulses, so its precision doesn't affect the clock — but if the offset drifts toward the lock window edge (±delay/2), pulse pairing starts failing.">NMEA vs system <small>· µs</small></h2><div class="wrap"><canvas id="c_nmea"></canvas></div></div>
   <div class="chart"><h2 data-tip="NTP requests answered and dropped per second, from serverstats counters differenced between samples. Drops should stay at zero — anything above means rate limiting or overload. Reading serverstats needs chronyd's admin socket; a blank chart means chronyc was refused.">NTP requests <small>· req/s</small></h2><div class="wrap"><canvas id="c_ntp"></canvas></div></div>
   <div class="chart"><h2 data-tip="Distinct client addresses in chronyd's client log. Seen: everyone since chronyd last started (LRU-bounded by clientloglimit, so it creeps upward — IPv6 privacy addresses rotate daily and count repeatedly). Active: the subset heard from within the last hour — the live gauge of who is actually using this server.">NTP clients</h2><div class="wrap"><canvas id="c_ncl"></canvas></div></div>
+  <div class="chart"><h2 data-tip="Bytes per second in and out of this host's network interfaces (from /proc/net/dev, all interfaces except lo unless DASH_IFACE is set), averaged per bucket. Compare against the NTP request chart: a surge of clients shows up here as a matching bump — each NTP exchange is roughly 90 bytes each way, so 1,000 req/s is about 90 kB/s per direction.">Network throughput <small>· kB/s</small></h2><div class="wrap"><canvas id="c_net"></canvas></div></div>
 </div>
 
 <div class="ranges" id="evlegend" style="display:none;margin-top:14px;margin-bottom:0"></div>
@@ -800,9 +893,12 @@ footer{margin-top:34px;font-size:10px;color:var(--dim);letter-spacing:.08em}
       </div>
     </div>
     <div class="setrow">
-      <span class="setlbl">Data</span>
-      <button type="button" class="danger" id="resetbtn">Reset database</button>
-      <span class="sethint">Deletes all logged samples. Logging restarts immediately.</span>
+      <span class="setlbl">Export</span>
+      <div class="seg">
+        <a id="exportwin" href="/api/export.csv?hours=24" download>Export data in selected window</a>
+        <a id="exportall" href="/api/export.csv" download>Export all data</a>
+      </div>
+      <span class="sethint">CSV of raw samples (not downsampled). Window export follows the selector above.</span>
     </div>
   </div>
 </details>
@@ -853,6 +949,8 @@ const CELLS = [
   ["NTP rate",       c => c.ntp_rate==null ? "—" : fmt(c.ntp_rate,1)+" <small>req/s</small>"],
   ["NTP clients",    c => c.clients_act==null ? "—" :
                           c.clients_act+" <small>past hour</small>"],
+  ["Network",        c => c.net_rx_rate==null ? "—" :
+                          "↓"+fmt(c.net_rx_rate/1e3,1)+" ↑"+fmt(c.net_tx_rate/1e3,1)+" <small>kB/s</small>"],
   ["Leap status",    c => c.leap],
 ];
 
@@ -998,6 +1096,26 @@ function initCharts(){
     }
   });
 
+  // Network throughput: rx + tx in kB/s, one axis.
+  charts.net = new Chart(document.getElementById("c_net"), {
+    type:"line",
+    data:{labels:[],datasets:[
+      {label:"rx",data:[],borderColor:cy,borderWidth:1.4,pointRadius:0,
+       tension:.25,fill:true,backgroundColor:hexToRgba(cy,.08)},
+      {label:"tx",data:[],borderColor:a,borderWidth:1.4,pointRadius:0,tension:.25},
+    ]},
+    options:{
+      responsive:true,maintainAspectRatio:false,animation:false,
+      plugins:{legend:{display:true,labels:{color:css("--dim"),
+        font:{family:"ui-monospace, Menlo, Consolas, monospace",size:10},boxWidth:14,boxHeight:2}},
+        tooltip:{intersect:false,mode:"index"}},
+      scales:{
+        x:{ticks:tick,grid:{color:css("--line")}},
+        y:{min:0,ticks:tick,grid:{color:css("--line")}}
+      }
+    }
+  });
+
   // NMEA health: offset + std dev vs the PPS-disciplined system clock, one axis.
   charts.nmea = new Chart(document.getElementById("c_nmea"), {
     type:"line",
@@ -1084,6 +1202,10 @@ async function loadHistory(){
   charts.ncl.data.datasets[0].data = h.clients;
   charts.ncl.data.datasets[1].data = h.clients_act;
   charts.ncl.update();
+  charts.net.data.labels = L;
+  charts.net.data.datasets[0].data = scale(h.net_rx, 1e-3);
+  charts.net.data.datasets[1].data = scale(h.net_tx, 1e-3);
+  charts.net.update();
   Object.keys(MIN_SPAN).forEach(applyMinSpan);
 }
 
@@ -1234,9 +1356,14 @@ document.querySelectorAll(".ranges button").forEach(b=>{
     b.classList.add("on");
     hours = Number(b.dataset.h);
     localStorage.setItem("dashWindow", hours);
+    updateExportLink();
     loadHistory();
   });
 });
+function updateExportLink(){
+  document.getElementById("exportwin").href = "/api/export.csv?hours=" + hours;
+}
+updateExportLink();
 
 // Chart label tooltips: hover the label ~1s, or click/tap the (i) icon.
 const openTips = [];
@@ -1271,7 +1398,7 @@ const sysDark = matchMedia("(prefers-color-scheme: dark)");
 function restyleCharts(){
   const g=css("--vfd"), a=css("--amber"), cy=css("--cyan");
   const ln=css("--line"), dm=css("--dim"), bd=css("--bad");
-  const palette = {off:[g],rms:[g],frq:[a],tmp:[a],skw:[a],dsp:[cy],err:[cy],sel:[g,a],nmea:[g,a],ntp:[g,bd],ncl:[cy,g]};
+  const palette = {off:[g],rms:[g],frq:[a],tmp:[a],skw:[a],dsp:[cy],err:[cy],sel:[g,a],nmea:[g,a],ntp:[g,bd],ncl:[cy,g],net:[cy,a]};
   for (const [k, cols] of Object.entries(palette)){
     const c = charts[k]; if (!c) continue;
     c.data.datasets.forEach((ds,i)=>{
@@ -1307,19 +1434,6 @@ sysDark.addEventListener("change", ()=>{
   if ((localStorage.getItem("dashTheme") || "system") === "system") applyTheme();
 });
 
-// ---- Settings: reset database ---------------------------------------
-document.getElementById("resetbtn").addEventListener("click", async ()=>{
-  if (!confirm("Delete ALL logged samples from the database? This cannot be undone.")) return;
-  try {
-    const r = await fetch("/api/reset", {method:"POST"});
-    const d = await r.json();
-    if (!d.ok) throw new Error(d.error);
-    loadCurrent(); loadHistory(); loadSources();
-  } catch (e) {
-    alert("Reset failed: " + e.message);
-  }
-});
-
 applyTheme();
 initCharts();
 loadCurrent();
@@ -1336,6 +1450,7 @@ setInterval(loadHistory, 60000);
 """
 
 PAGE_RENDERED = (PAGE
+                 .replace("__HOSTNAME__", html.escape(HOSTNAME))
                  .replace("__UTC_12H__", "true" if UTC_CLOCK_12_HOUR else "false")
                  .replace("__LOCAL_12H__", "true" if LOCAL_CLOCK_12_HOUR else "false")
                  ).encode()
@@ -1375,6 +1490,23 @@ class Handler(BaseHTTPRequestHandler):
                 hours = float(q.get("hours", ["24"])[0])
                 hours = max(0.1, min(hours, RETENTION_DAYS * 24))
                 self._send(200, "application/json", json.dumps(api_history(hours)).encode())
+            elif url.path == "/api/export.csv":
+                q = parse_qs(url.query)
+                hours = None
+                if "hours" in q:
+                    hours = float(q["hours"][0])
+                    hours = max(0.1, min(hours, RETENTION_DAYS * 24))
+                stamp = time.strftime("%Y%m%d-%H%M%S")
+                scope = "all" if hours is None else f"{hours:g}h"
+                body = api_export_csv(hours)
+                self.send_response(200)
+                self.send_header("Content-Type", "text/csv; charset=utf-8")
+                self.send_header("Content-Disposition",
+                                 f'attachment; filename="{HOSTNAME}-chrony-{scope}-{stamp}.csv"')
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(body)
             elif url.path == "/api/events":
                 q = parse_qs(url.query)
                 hours = float(q.get("hours", ["24"])[0])
@@ -1384,22 +1516,6 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(404, "text/plain", b"not found")
         except BrokenPipeError:
             pass
-        except Exception as e:
-            self._send(500, "application/json",
-                       json.dumps({"ok": False, "error": str(e)}).encode())
-
-    def do_POST(self):
-        if urlparse(self.path).path != "/api/reset":
-            self._send(404, "text/plain", b"not found")
-            return
-        try:
-            conn = db_connect()
-            conn.execute("DELETE FROM tracking")
-            conn.execute("DELETE FROM events")
-            conn.commit()
-            conn.execute("VACUUM")
-            conn.close()
-            self._send(200, "application/json", json.dumps({"ok": True}).encode())
         except Exception as e:
             self._send(500, "application/json",
                        json.dumps({"ok": False, "error": str(e)}).encode())
