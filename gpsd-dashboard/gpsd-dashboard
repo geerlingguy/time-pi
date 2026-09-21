@@ -1,0 +1,40 @@
+#!/sbin/openrc-run
+
+description="gpsd + chrony web dashboard"
+
+# Start-Abhängigkeiten (entspricht After=/Wants=)
+depend() {
+    need net chronyd gpsd
+    after net chronyd gpsd
+}
+
+# OpenRC Service-Variablen (entspricht [Service])
+command="/usr/bin/python3"
+command_args="/opt/gpsd-dashboard/gpsd-dashboard.py"
+command_user="chrony:chrony"
+command_background="true"
+
+pidfile="/run/${RC_SVCNAME}.pid"
+
+#output_log="/var/log/gpsd-dashboard.log"
+#error_log="/var/log/gpsd-dashboard-err.log"
+
+# Neustart bei Fehler (Restart=on-failure / RestartSec=5)
+respawn_delay=5
+respawn_max=0
+
+# Fähigkeiten / Capabilities (AmbientCapabilities=CAP_NET_BIND_SERVICE)
+capabilities="^cap_net_bind_service"
+
+start_pre() {
+    # Stellt sicher, dass das Schreibrecht auf /run/chrony gegeben ist (ReadWritePaths)
+    checkpath -d -m 0750 -o ${command_user} /run/chrony
+
+    # Stellt sicher, dass die Shreibrechte auf die Logfile gegeben sind
+    if [ ! -z ${output_log+x} ]; then
+        checkpath -f -m 0644 -o ${command_user} ${output_log}
+    fi
+    if [ ! -z ${error_log+x} ]; then
+        checkpath -f -m 0644 -o ${command_user} ${error_log}
+    fi
+}
