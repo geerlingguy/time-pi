@@ -40,7 +40,8 @@ i226_force_1gbps: true
 # Pick the zip matching your kernel series: https://github.com/Time-Appliances-Project/TimeHAT
 # Re-applied automatically after a kernel update puts the stock driver back.
 igc_ppsfix_install: true
-igc_ppsfix_zip_url: https://github.com/Time-Appliances-Project/TimeHAT/raw/refs/heads/main/intel-igc-ppsfix_rpi5_6.12.62.zip
+igc_ppsfix_zip_url: >-
+  https://github.com/Time-Appliances-Project/TimeHAT/raw/refs/heads/main/intel-igc-ppsfix_rpi5_6.12.62.zip
 igc_dkms_version: 6.12.0-ppsfix.1
 
 # Restart ts2phc if it stops logging PHC offsets (it never re-arms its PPS

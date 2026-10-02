@@ -22,7 +22,9 @@
   when: i226_nm_profile == ''
 
 - name: Read current link settings from the NM profile.
-  ansible.builtin.command: nmcli -g 802-3-ethernet.auto-negotiate,802-3-ethernet.speed,802-3-ethernet.duplex connection show "{{ i226_nm_profile }}"
+  ansible.builtin.command: >-
+    nmcli -g 802-3-ethernet.auto-negotiate,802-3-ethernet.speed,802-3-ethernet.duplex
+    connection show "{{ i226_nm_profile }}"
   register: i226_nm_link
   changed_when: false
 
