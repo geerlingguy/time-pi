@@ -1,0 +1,7 @@
+[Unit]
+Description=Restart ts2phc if it stops receiving PPS events
+After=ts2phc.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/ts2phc-watchdog.sh

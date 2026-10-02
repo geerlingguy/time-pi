@@ -1,0 +1,10 @@
+[Unit]
+Description=Periodically check that ts2phc is still disciplining the PHC
+
+[Timer]
+OnBootSec=90
+OnUnitActiveSec={{ ts2phc_watchdog_interval }}
+AccuracySec=5
+
+[Install]
+WantedBy=timers.target

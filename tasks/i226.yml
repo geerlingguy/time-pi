@@ -1,7 +1,43 @@
 ---
-- name: Add eth1 interface customizations.
-  ansible.builtin.template:
-    src: "templates/eth1.j2"
-    dest: "/etc/network/if-up.d/eth1"
-    mode: 0755
-  notify: Restart NetworkManager
+# Force the i226 to 1 Gbps *inside the NetworkManager profile*, so the speed is
+# set before the link comes up. The old /etc/network/if-up.d hook ran
+# `ethtool -s` after link-up, which renegotiated the link, reset the NIC, and
+# silently cancelled ts2phc's PPS (extts) request -> PHC free-runs, time drifts.
+- name: Find the NetworkManager profile bound to the PTP interface.
+  ansible.builtin.shell: |
+    set -o pipefail
+    nmcli -t -f NAME,DEVICE connection show | awk -F: -v d="{{ ptp4l_ptp_iface }}" '$2==d {print $1; exit}'
+  args:
+    executable: /bin/bash
+  register: i226_nm_profile_result
+  changed_when: false
+
+- name: Set i226 NM profile fact.
+  ansible.builtin.set_fact:
+    i226_nm_profile: "{{ i226_nm_profile_result.stdout | trim }}"
+
+- name: Fail if the PTP interface has no active NetworkManager profile.
+  ansible.builtin.fail:
+    msg: "No NetworkManager profile is active on {{ ptp4l_ptp_iface }}. Configure one (e.g. with nmtui) first."
+  when: i226_nm_profile == ''
+
+- name: Read current link settings from the NM profile.
+  ansible.builtin.command: nmcli -g 802-3-ethernet.auto-negotiate,802-3-ethernet.speed,802-3-ethernet.duplex connection show "{{ i226_nm_profile }}"
+  register: i226_nm_link
+  changed_when: false
+
+- name: Force 1 Gbps full duplex in the NM profile.
+  ansible.builtin.command: >
+    nmcli connection modify "{{ i226_nm_profile }}"
+    802-3-ethernet.auto-negotiate yes
+    802-3-ethernet.speed 1000
+    802-3-ethernet.duplex full
+  when: i226_nm_link.stdout_lines != ['yes', '1000', 'full']
+  notify:
+    - Reactivate i226 connection
+    - Restart ts2phc
+
+- name: Remove the legacy if-up.d speed hook (it reset the NIC after boot).
+  ansible.builtin.file:
+    path: "/etc/network/if-up.d/{{ ptp4l_ptp_iface }}"
+    state: absent

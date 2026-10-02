@@ -1,0 +1,14 @@
+#!/bin/bash
+# {{ ansible_managed }}
+# Restart ts2phc if it is running but has not reported a PHC offset recently.
+# (A NIC reset / link renegotiation cancels its extts request and it never re-arms.)
+MAX_AGE={{ ts2phc_watchdog_max_age }}
+systemctl is-active --quiet ts2phc || exit 0
+now=$(date +%s)
+started=$(date -d "$(systemctl show -p ActiveEnterTimestamp --value ts2phc)" +%s 2>/dev/null || echo 0)
+[ $((now - started)) -lt "$MAX_AGE" ] && exit 0   # just (re)started; give it time to lock
+last=$(journalctl -u ts2phc -o short-unix -n 200 --no-pager 2>/dev/null | grep ' offset ' | tail -1 | cut -d. -f1)
+if [ -z "$last" ] || [ $((now - last)) -gt "$MAX_AGE" ]; then
+  logger -t ts2phc-watchdog "no PHC offset logged for >${MAX_AGE}s (NIC reset?) - restarting ts2phc"
+  systemctl restart ts2phc
+fi

@@ -20,6 +20,13 @@
     - regexp: '^makestep.+'
       line: "makestep 0 0"
 
+- name: Disable DHCP-provided NTP sources (they fight phc2sys for the system clock).
+  ansible.builtin.replace:
+    path: /etc/chrony/chrony.conf
+    regexp: '^(sourcedir /run/chrony-dhcp)\s*$'
+    replace: '#\1'
+  notify: Restart chrony
+
 - name: Customize other chrony configuration.
   ansible.builtin.template:
     src: "templates/{{ item }}.j2"

@@ -19,6 +19,9 @@
     name: NetworkManager
     state: restarted
 
+- name: Reactivate i226 connection
+  ansible.builtin.command: nmcli connection up "{{ i226_nm_profile }}"
+
 - name: Restart ptp4l
   ansible.builtin.systemd_service:
     name: ptp4l

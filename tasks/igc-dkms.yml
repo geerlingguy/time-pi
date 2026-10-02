@@ -1,0 +1,90 @@
+---
+# The TimeHAT's i226 needs the Time-Appliances-Project patched igc driver for
+# PPS input (extts). A kernel update puts the stock igc back into the initramfs
+# and ts2phc then dies with "PTP_EXTTS_REQUEST2 failed: Operation not supported".
+# This re-applies the DKMS module whenever the stock one would be loaded.
+- name: Install DKMS prerequisites.
+  ansible.builtin.apt:
+    name:
+      - dkms
+      - raspberrypi-kernel-headers
+      - unzip
+    state: present
+
+- name: Check which igc module modprobe would load.
+  ansible.builtin.command: modinfo -n igc
+  register: igc_modinfo
+  changed_when: false
+
+- name: Check whether the stock module path already holds the patched module.
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    checksum_algorithm: sha256
+  loop:
+    - "/lib/modules/{{ ansible_kernel }}/updates/dkms/igc.ko.xz"
+    - "/lib/modules/{{ ansible_kernel }}/kernel/drivers/net/ethernet/intel/igc/igc.ko.xz"
+  register: igc_ko
+
+- name: Decide whether the patched igc needs (re)installing.
+  ansible.builtin.set_fact:
+    igc_needs_install: >-
+      {{ ('/updates/dkms/' not in igc_modinfo.stdout)
+         or (not igc_ko.results[0].stat.exists)
+         or (igc_ko.results[0].stat.checksum | default('a')) != (igc_ko.results[1].stat.checksum | default('b')) }}
+
+- name: Install patched igc driver.
+  when: igc_needs_install | bool
+  block:
+    - name: Download the TimeHAT igc PPS-fix source.
+      ansible.builtin.get_url:
+        url: "{{ igc_ppsfix_zip_url }}"
+        dest: /opt/igc-ppsfix.zip
+        mode: 0644
+
+    - name: Ensure the driver source directory exists.
+      ansible.builtin.file:
+        path: /opt/igc-ppsfix
+        state: directory
+        mode: 0755
+
+    - name: Unpack the driver source.
+      ansible.builtin.unarchive:
+        src: /opt/igc-ppsfix.zip
+        dest: /opt/igc-ppsfix
+        remote_src: true
+
+    - name: Register the module with DKMS (ignored if already added).
+      ansible.builtin.command: dkms add /opt/igc-ppsfix
+      register: dkms_add
+      failed_when: dkms_add.rc != 0 and 'already' not in (dkms_add.stdout + dkms_add.stderr)
+      changed_when: dkms_add.rc == 0
+
+    - name: Build and install the DKMS module for the running kernel.
+      ansible.builtin.command: "{{ item }}"
+      loop:
+        - "dkms build --force igc -v {{ igc_dkms_version }} -k {{ ansible_kernel }}"
+        - "dkms install --force igc -v {{ igc_dkms_version }} -k {{ ansible_kernel }}"
+
+    - name: Back up the stock igc module.
+      ansible.builtin.copy:
+        src: "/lib/modules/{{ ansible_kernel }}/kernel/drivers/net/ethernet/intel/igc/igc.ko.xz"
+        dest: "/lib/modules/{{ ansible_kernel }}/kernel/drivers/net/ethernet/intel/igc/igc.ko.xz.stock"
+        remote_src: true
+        force: false
+        mode: 0644
+
+    - name: Replace the stock igc module with the patched one (so the initramfs picks it up).
+      ansible.builtin.copy:
+        src: "/lib/modules/{{ ansible_kernel }}/updates/dkms/igc.ko.xz"
+        dest: "/lib/modules/{{ ansible_kernel }}/kernel/drivers/net/ethernet/intel/igc/igc.ko.xz"
+        remote_src: true
+        mode: 0644
+
+    - name: Rebuild module deps and the initramfs.
+      ansible.builtin.command: "{{ item }}"
+      loop:
+        - depmod -a
+        - "update-initramfs -u -k {{ ansible_kernel }}"
+
+    - name: Reboot so the patched driver loads from the initramfs.
+      ansible.builtin.reboot:

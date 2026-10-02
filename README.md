@@ -102,6 +102,12 @@ See this issue for more: [Debug NEO-M9N module on TimeHAT V2](https://github.com
 
 ## Debugging
 
+Quick one-shot health check (GPS fix/signal, NIC + patched igc driver, ts2phc/ptp4l/phc2sys, chrony, temps), with fix hints for anything that isn't OK:
+
+```
+sudo resources/timecheck.sh      # add -v for raw command output
+```
+
 Some handy commands:
 
 ```

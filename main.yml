@@ -19,6 +19,10 @@
     - name: Configure Raspberry Pi settings.
       ansible.builtin.include_tasks: tasks/pi-config.yml
 
+    - name: Install patched igc driver for TimeHAT PPS input.
+      ansible.builtin.include_tasks: tasks/igc-dkms.yml
+      when: igc_ppsfix_install
+
     - name: Configure i226 Ethernet interface.
       ansible.builtin.include_tasks: tasks/i226.yml
       when: i226_force_1gbps
@@ -31,3 +35,7 @@
 
     - name: Configure PTP.
       ansible.builtin.include_tasks: tasks/ptp.yml
+
+    - name: Configure ts2phc watchdog.
+      ansible.builtin.include_tasks: tasks/ts2phc-watchdog.yml
+      when: ts2phc_watchdog_enabled

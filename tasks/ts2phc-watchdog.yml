@@ -1,0 +1,26 @@
+---
+# ts2phc never re-arms its PPS (extts) request after a NIC reset or link flap:
+# it sits in poll() forever while the PHC free-runs. This timer restarts it
+# when no offset has been logged recently. Requires ts2phc_logging_level >= 6.
+- name: Copy ts2phc watchdog script into place.
+  ansible.builtin.template:
+    src: ts2phc-watchdog.sh.j2
+    dest: /usr/local/bin/ts2phc-watchdog.sh
+    mode: 0755
+
+- name: Copy ts2phc watchdog service and timer into place.
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    mode: 0644
+  loop:
+    - ts2phc-watchdog.service
+    - ts2phc-watchdog.timer
+  register: ts2phc_watchdog_units
+
+- name: Enable the ts2phc watchdog timer.
+  ansible.builtin.systemd_service:
+    name: ts2phc-watchdog.timer
+    state: "{{ 'restarted' if ts2phc_watchdog_units is changed else 'started' }}"
+    enabled: true
+    daemon_reload: true

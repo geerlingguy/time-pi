@@ -31,9 +31,23 @@ chrony_refclock: |
 # See: https://chrony-project.org/doc/3.4/chrony.conf.html#allow
 chrony_allow: "10.0.2.0/24"
 
-# Force i226 eth1 interface to 1 Gbps speed.
-# See: https://github.com/geerlingguy/time-pi/issues/2
+# Force i226 eth1 interface to 1 Gbps speed (set in the NetworkManager profile,
+# before link-up; a post-up ethtool renegotiation resets the NIC and kills
+# ts2phc's PPS input). See: https://github.com/geerlingguy/time-pi/issues/2
 i226_force_1gbps: true
+
+# TimeHAT patched igc driver (needed for PPS input / extts on the i226).
+# Pick the zip matching your kernel series: https://github.com/Time-Appliances-Project/TimeHAT
+# Re-applied automatically after a kernel update puts the stock driver back.
+igc_ppsfix_install: true
+igc_ppsfix_zip_url: https://github.com/Time-Appliances-Project/TimeHAT/raw/refs/heads/main/intel-igc-ppsfix_rpi5_6.12.62.zip
+igc_dkms_version: 6.12.0-ppsfix.1
+
+# Restart ts2phc if it stops logging PHC offsets (it never re-arms its PPS
+# request after a NIC reset / link flap). Needs ts2phc_logging_level: 6.
+ts2phc_watchdog_enabled: true
+ts2phc_watchdog_max_age: 30   # seconds without an offset line before restart
+ts2phc_watchdog_interval: 30  # seconds between checks
 
 # PTP 4 Linux options.
 ptp4l_version_latest: true  # Install jclark's linuxptp v4 .deb if true
@@ -61,4 +75,4 @@ phc2sys_service_enabled: true
 phc2sys_logging_level: 4  # Set to 6 to see sync and frequency updates every 1s
 phc2sys_clock: 'CLOCK_REALTIME'
 phc2sys_source: '/dev/ptp0'
-phc2sys_extra_opts: '-O 37'
+phc2sys_extra_opts: '-O -37'  # PHC is TAI, system clock is UTC: offset = -(TAI-UTC)
