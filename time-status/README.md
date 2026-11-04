@@ -15,6 +15,8 @@ Python 3 stdlib only (no pip packages, no JS libraries). History is kept in SQLi
 
 The footer dots show whether each data source (gpsd, chrony, ts2phc, and phc2sys if it logs offsets) has reported in the last 10 seconds.
 
+The Allan deviation chart is computed every 10 minutes from the per-minute mean frequency correction of ts2phc (the NIC oscillator vs GPS) and phc2sys (the Pi's oscillator vs the PHC) over the last 30 days. Short τ includes GPS PPS noise and servo action, so the chart also draws an estimated PPS noise floor (√3·σ/τ, from the 24h PHC σ).
+
 "Locked" means ts2phc reported servo state `s2` for at least half of the samples in a minute. Offset statistics only include locked samples. The NTP servers in `chrony.conf` (`pool ... noselect` by default) are used for comparison only; their offsets include network path asymmetry, so a few hundred µs is normal.
 
 ## Installation

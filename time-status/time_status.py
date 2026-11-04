@@ -31,6 +31,7 @@ DB_PATH = os.environ.get("DASH_DB", os.path.join(os.environ.get("STATE_DIRECTORY
 POLL = 15           # seconds between chrony/systemd polls
 STALE = 10          # seconds before a servo or GNSS reading counts as stale
 CACHE_TTL = 30      # seconds to cache DB-backed API results
+ADEV_EVERY = 600    # seconds between Allan deviation updates
 MAX_CONN = 32       # concurrent HTTP connections; extras are dropped
 MAX_LINE = 1 << 16  # longest gpsd line accepted
 MAX_SATS = 256
@@ -43,7 +44,7 @@ OFFSET_RE = re.compile(r"offset\s+(-?\d{1,12})\s+s([0-2])\s+freq\s+([+-]?\d{1,12
 SERVO_SRC = {"ts2phc": "phc", "phc2sys": "sys"}
 
 lock = threading.Lock()
-live = {"gnss": {}, "sats": [], "servo": {}, "chrony": None, "peers": []}
+live = {"gnss": {}, "sats": [], "servo": {}, "chrony": None, "peers": [], "adev": {}}
 acc = {}  # (minute, src) -> per-minute servo accumulator
 db_lock = threading.Lock()
 cache_lock = threading.Lock()
@@ -264,10 +265,51 @@ def flush():
             (minute, int(locked), gnss["used"], gnss["seen"], gnss["fix"], read_temp()))
 
 
+def allan(src, since):
+    """Overlapping Allan deviation at octave τ from a servo's per-minute mean frequency correction."""
+    rows = db_exec("SELECT ts, freq FROM offsets WHERE src=? AND ts>=? AND freq IS NOT NULL ORDER BY ts",
+                   (src, since))
+    if not rows:
+        return []
+    mean = sum(f for _, f in rows) / len(rows)  # constant offset doesn't change ADEV; removing it keeps precision
+    phases, x, last = [], [0.0], None
+    for ts, f in rows:
+        if last is not None and ts - last != 60:  # gap: start a new contiguous segment
+            phases.append(x)
+            x = [0.0]
+        x.append(x[-1] + (f - mean) * 1e-9 * 60)
+        last = ts
+    phases.append(x)
+    out, m = [], 1
+    while True:
+        total = count = 0
+        for x in phases:
+            if len(x) > 2 * m:
+                total += sum((c - 2 * b + a) ** 2 for a, b, c in zip(x, x[m:], x[2 * m:]))
+                count += len(x) - 2 * m
+        if count < 5 * m:  # fewer than ~5 independent samples at this τ
+            return out
+        tau = m * 60
+        out.append([tau, math.sqrt(total / (2 * tau * tau * count))])
+        m *= 2
+
+
 def prune(cutoff):
     db_exec("DELETE FROM offsets WHERE ts < ?", (cutoff,))
     db_exec("DELETE FROM minutes WHERE ts < ?", (cutoff,))
     db_exec("DELETE FROM peers WHERE ts < ?", (cutoff,))
+
+
+def adev_worker():
+    while True:
+        try:
+            since = int(time.time() - 30 * 86400)
+            adev = {src: allan(src, since) for src in ("phc", "sys")}
+            with lock:
+                live["adev"] = {k: v for k, v in adev.items() if v}
+        except sqlite3.Error as e:
+            log(f"adev: {e}")
+        time.sleep(ADEV_EVERY)
 
 
 def poller():
@@ -340,7 +382,7 @@ def api_status():
                  for k, v in live["servo"].items()}
         gnss = gnss_summary()
         sats = [{"g": s["g"], "ss": s["ss"], "u": s["u"]} for s in live["sats"]] if gnss["seen"] or gnss["used"] else []
-        chrony, peers = live["chrony"], live["peers"]
+        chrony, peers, adev = live["chrony"], live["peers"], live["adev"]
         gnss_age = now - live["gnss"].get("ts", 0)
     names = display_names(peers)
     peers = [{**{k: v for k, v in p.items() if k != "lastrx"}, "name": names[p["name"]]} for p in peers]
@@ -364,7 +406,7 @@ def api_status():
         status = ("warn", "Holdover")
     return {"status": status[0], "status_text": status[1], "servo": servo, "gnss": gnss, "sats": sats,
             "chrony": chrony, "peers": peers, "sources": sources, "temp": read_temp(),
-            "stats": cached("stats", window_stats), "now": time.time()}
+            "stats": cached("stats", window_stats), "adev": adev, "now": time.time()}
 
 
 def api_history(span):
@@ -478,7 +520,7 @@ def main():
     state["db"] = sqlite3.connect(DB_PATH, check_same_thread=False)
     state["db"].execute("PRAGMA journal_mode=WAL")
     state["db"].executescript(SCHEMA)
-    for fn in (gpsd_reader, journal_reader, poller):
+    for fn in (gpsd_reader, journal_reader, poller, adev_worker):
         threading.Thread(target=fn, daemon=True).start()
     server = Server((BIND, PORT), Handler)
     log(f"time-status on {BIND or '*'}:{PORT}, db {DB_PATH}")
