@@ -73,7 +73,13 @@ ts2phc_extra_opts: >-
 
 phc2sys_service_state: started
 phc2sys_service_enabled: true
-phc2sys_logging_level: 4  # Set to 6 to see sync and frequency updates every 1s
+phc2sys_logging_level: 4  # Set to 6 to see sync and frequency updates every 1s (and graph them in time-status)
 phc2sys_clock: 'CLOCK_REALTIME'
 phc2sys_source: '/dev/ptp0'
 phc2sys_extra_opts: '-O -37'  # PHC is TAI, system clock is UTC: offset = -(TAI-UTC)
+
+# Public status page (GNSS, PHC/system offsets, chrony sources). See time-status/README.md.
+time_status_enabled: false
+time_status_port: 80
+time_status_title: "{{ inventory_hostname }}"
+time_status_subtitle: "Stratum 1 NTP server, disciplined by GNSS"

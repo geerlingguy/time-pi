@@ -39,3 +39,7 @@
     - name: Configure ts2phc watchdog.
       ansible.builtin.include_tasks: tasks/ts2phc-watchdog.yml
       when: ts2phc_watchdog_enabled
+
+    - name: Configure time status dashboard.
+      ansible.builtin.include_tasks: tasks/time-status.yml
+      when: time_status_enabled

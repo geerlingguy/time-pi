@@ -39,3 +39,9 @@
     name: phc2sys
     state: restarted
     daemon-reload: true
+
+- name: Restart time-status
+  ansible.builtin.systemd_service:
+    name: time-status
+    state: restarted
+    daemon-reload: true
