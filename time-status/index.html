@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>__TITLE__ · time status</title>
+<meta name="description" content="__SUBTITLE__">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='6.5' fill='none' stroke='%2350fa7b' stroke-width='2'/%3E%3Cpath d='M8 4v4l3 2' fill='none' stroke='%2350fa7b' stroke-width='2'/%3E%3C/svg%3E">
+<style>
+:root {
+  --bg: #ffffff; --ink: #232333; --muted: #737373; --line: #e6e6e6; --zero: #c3c2b7; --dots: #663399;
+  --link: rgba(80, 250, 123, 0.9);
+  --ok: #0ca30c; --ok-ink: #006300; --warn: #fab219; --bad: #d03b3b; --none: #d9d9d9;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4; --s6: #008300; --s7: #6250d6; --s8: #e34948;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #202124; --ink: #ffffff; --muted: #b0b0b0; --line: #3a3a3a; --zero: #5a5a5a; --dots: #0066ff;
+    --link: rgba(80, 250, 123, 0.45);
+    --ok-ink: #50fa7b; --none: #3a3a3a;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767;
+  }
+}
+* { box-sizing: border-box; }
+html { font-family: Helvetica, Arial, sans-serif; font-size: 15px; line-height: 1.5; color: var(--ink); background: var(--bg); }
+body { margin: 0; }
+main { max-width: 920px; margin: 0 auto; padding: 1rem 1rem 0; }
+a { color: inherit; text-decoration: none; border-bottom: 1px solid var(--link); }
+h1 { font-size: 1.9rem; font-weight: bold; margin: 0; line-height: 1.2; }
+h2 { font-size: 1.4rem; font-weight: normal; margin: 2rem 0 .5rem; }
+h3 { font-size: 1rem; font-weight: normal; margin: 0; }
+.muted, .sub { color: var(--muted); }
+.small { font-size: .85rem; }
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: .5rem 1rem; }
+header .sub { margin: .1rem 0 0; }
+.pill { display: inline-flex; align-items: center; gap: .45rem; border: 1px solid var(--line); border-radius: 99px; padding: .25rem .8rem; white-space: nowrap; }
+.dot { width: .65rem; height: .65rem; border-radius: 50%; background: var(--none); flex: none; }
+.ok .dot, .dot.ok { background: var(--ok); }
+.warn .dot, .dot.warn { background: var(--warn); }
+.bad .dot, .dot.bad { background: var(--bad); }
+
+.clock { margin: 1.25rem 0 1rem; }
+#utc { font-family: var(--mono); font-size: clamp(2.2rem, 9vw, 3.2rem); line-height: 1.1; letter-spacing: -.02em; }
+#utc small { font-size: .45em; color: var(--muted); letter-spacing: 0; }
+
+.tiles { display: grid; grid-template-columns: repeat(2, 1fr); gap: .5rem; }
+@media (min-width: 640px) { .tiles { grid-template-columns: repeat(4, 1fr); } }
+.tile { border: 1px solid var(--line); border-radius: 5px; padding: .55rem .7rem; min-width: 0; }
+.tile .label { color: var(--muted); font-size: .8rem; }
+.tile .value { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 1.35rem; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tile .sub { font-size: .8rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.bar { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: .5rem; margin: 2rem 0 .5rem; }
+.bar h2 { margin: 0; }
+.range { display: inline-flex; border: 1px solid var(--line); border-radius: 5px; overflow: hidden; }
+.range button { font: inherit; font-size: .85rem; color: inherit; background: none; border: 0; padding: .2rem .65rem; cursor: pointer; }
+.range button + button { border-left: 1px solid var(--line); }
+.range button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+
+.chart { margin: .75rem 0 1.25rem; }
+.chart .head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .25rem 1rem; align-items: baseline; }
+.legend { display: flex; flex-wrap: wrap; gap: .2rem .9rem; font-size: .8rem; color: var(--muted); }
+.key { display: inline-block; width: 14px; height: 2px; vertical-align: middle; margin-right: .35rem; border-radius: 1px; }
+.plot { position: relative; height: 170px; margin-top: .3rem; transition: opacity .2s; }
+.plot.loading { opacity: .5; }
+.plot svg { display: block; overflow: visible; }
+.plot .empty { height: 100%; display: grid; place-items: center; color: var(--muted); border: 1px dashed var(--line); border-radius: 5px; font-size: .9rem; }
+.axis { fill: var(--muted); font: 11px var(--mono); }
+.tip { position: absolute; top: 0; pointer-events: none; background: var(--bg); border: 1px solid var(--line); border-radius: 5px; padding: .3rem .5rem; font-size: .8rem; white-space: nowrap; box-shadow: 0 2px 8px rgba(0,0,0,.12); display: none; z-index: 2; }
+[data-tip] { cursor: help; }
+#hint { position: fixed; z-index: 10; max-width: 260px; pointer-events: none; background: var(--ink); color: var(--bg); border-radius: 5px; padding: .4rem .55rem; font-size: .8rem; line-height: 1.35; display: none; }
+.tip b { font-family: var(--mono); font-weight: bold; }
+.tip .t { color: var(--muted); }
+
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+th, td { padding: .35rem .5rem; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+th { font-weight: normal; color: var(--muted); font-size: .8rem; }
+th:first-child, td:first-child { text-align: left; padding-left: 0; }
+td.num, td .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+@media (max-width: 520px) { table { font-size: .8rem; } th, td { padding: .3rem .3rem; } .wide { display: none; } }
+.sw { display: inline-block; width: .6rem; height: .6rem; border-radius: 2px; margin-right: .45rem; vertical-align: baseline; }
+
+.days { display: flex; gap: 2px; height: 26px; margin-top: 1rem; }
+.days span { flex: 1; border-radius: 2px; background: var(--none); }
+.days span.ok { background: var(--ok); } .days span.warn { background: var(--warn); } .days span.bad { background: var(--bad); }
+.days-legend { display: flex; justify-content: space-between; flex-wrap: wrap; gap: .25rem 1rem; margin-top: .3rem; }
+.days-legend .dot { display: inline-block; width: .55rem; height: .55rem; border-radius: 2px; margin: 0 .25rem 0 .5rem; vertical-align: baseline; }
+
+
+footer { margin-top: 2.5rem; padding: 1.25rem 0 2rem; border-top: .4rem dotted var(--dots); font-size: .85rem; }
+.services { display: flex; flex-wrap: wrap; gap: .3rem 1.1rem; margin-bottom: .6rem; }
+.services span { display: inline-flex; align-items: center; gap: .35rem; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1>__TITLE__</h1>
+      <p class="sub">__SUBTITLE__</p>
+    </div>
+    <div id="status" class="pill"><span class="dot"></span><span id="status-text">Connecting…</span></div>
+  </header>
+
+  <section class="clock">
+    <div id="utc">--:--:-- <small>UTC</small></div>
+    <div id="clock-sub" class="muted small">&nbsp;</div>
+  </section>
+
+  <section class="tiles" id="tiles"></section>
+
+  <div class="bar">
+    <h2>Offset history</h2>
+    <div class="range" id="range" role="group" aria-label="History range">
+      <button data-r="1h">1h</button><button data-r="24h" aria-pressed="true">24h</button><button data-r="7d">7d</button><button data-r="30d">30d</button>
+    </div>
+  </div>
+  <div class="chart">
+    <div class="head"><h3>Clock offset vs GNSS</h3><div class="legend" id="legend-servo"></div></div>
+    <div class="muted small">PHC vs GPS PPS (ts2phc) and system clock vs PHC (phc2sys); line is the mean, band is min–max. These are in-loop servo residuals, not absolute accuracy vs UTC.</div>
+    <div class="plot" id="plot-servo"></div>
+  </div>
+  <div class="chart">
+    <div class="head"><h3>Compared to other NTP servers</h3><div class="legend" id="legend-peers"></div></div>
+    <div class="muted small">This clock relative to each server as measured by chrony; positive = this clock ahead. Includes network path asymmetry; falsetickers are not charted.</div>
+    <div class="plot" id="plot-peers"></div>
+  </div>
+
+  <h2>Stability</h2>
+  <div class="scroll"><table id="stats"></table></div>
+  <div class="days" id="days"></div>
+  <div class="days-legend muted small">
+    <span>Time locked to GNSS, last 30 days (UTC)</span>
+    <span><span class="dot ok"></span>≥ 99.9%<span class="dot warn"></span>≥ 99%<span class="dot bad"></span>&lt; 99%<span class="dot"></span>no data</span>
+  </div>
+
+  <h2>Satellites</h2>
+  <div class="scroll"><table id="constellations"></table></div>
+  <p class="muted small" id="gnss-sub"></p>
+
+  <h2>NTP sources</h2>
+  <div class="scroll"><table id="peers"></table></div>
+  <p class="muted small">Offsets from <code>chronyc sources</code>, σ from <code>chronyc sourcestats</code>. State: * selected, + combined, - not combined, ? unusable or compare-only (noselect), x falseticker, ~ too variable.</p>
+
+  <footer>
+    <div class="services" id="services"></div>
+    <div class="muted">Updates every 10 seconds · <a href="/api/status">JSON</a> · <a href="https://github.com/geerlingguy/time-pi">time-pi</a></div>
+  </footer>
+</main>
+
+<div id="hint" role="tooltip"></div>
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const cssVar = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const GNSS = {0: "GPS", 1: "SBAS", 2: "Galileo", 3: "BeiDou", 4: "IMES", 5: "QZSS", 6: "GLONASS", 7: "NavIC"};
+const GNSS_COLOR = {0: "--s1", 2: "--s2", 3: "--s3", 6: "--s4", 5: "--s5", 1: "--s6", 7: "--s7", 4: "--s8"};
+const SERVO = {phc: ["PHC vs PPS", "--s1", "PHC"], sys: ["System vs PHC", "--s2", "System"]};
+const HELP = {
+  phc: "How far the network card's clock (PHC) is from the GPS once-a-second pulse (PPS), as its own servo sees it. Closer to 0 is better, but it leaves out antenna, cable and receiver delays, so true error vs UTC is larger.",
+  sys: "How far the Pi's own clock, the one NTP hands out, is from the network card's clock. Closer to 0 is better.",
+  freq: "How much the network card's crystal is sped up or slowed down to match GPS, in parts per billion.",
+  sd: "σ (sigma) is how much the offset wiggles around its average. Lower means steadier.",
+  mean: "the average offset. Should sit near 0; a steady non-zero value is a small bias.",
+  max: "the biggest offset seen in either direction.",
+  lockedFor: "How long the clock has stayed locked to the GPS pulse without a break.",
+  avail30: "Share of recorded time in the last 30 days the clock was locked to GPS. Time this page wasn't running isn't counted; the NTP Pool's monitoring score is the independent check.",
+  locked: "Share of each time window the clock was locked to GPS.",
+  sats: "Satellites used for the fix, out of all the satellites the receiver can hear.",
+  fix: "3D fix means the receiver knows exactly where it is, so it can work out the time precisely.",
+  cno: "Average signal strength of the satellites in use. Over 40 dB-Hz is strong; under 30 is weak.",
+  tdop: "Time dilution of precision: how well the satellites' spread across the sky helps pin down time. Lower is better; under 1 is great.",
+  pdop: "Position dilution of precision: the same idea for position. Lower is better; under 2 is great.",
+  stratum: "How many steps this clock is from a reference clock. 1 means it's tied directly to one (GPS).",
+  ref: "ref is the source chrony follows (LOCL = the Pi's own clock, kept on GPS time by phc2sys). leap says whether a leap second is coming.",
+  vsNtp: "The middle value of this clock's offset from the other NTP servers chrony checks (skipping unreachable ones and falsetickers). Network delays make a few ms normal.",
+  gpsd: "Satellite receiver data via gpsd, updated in the last 10 seconds.",
+  chrony: "The NTP server (chrony) is answering.",
+  ts2phc: "The network card clock is getting GPS pulse corrections, updated in the last 10 seconds.",
+  phc2sys: "The Pi's clock is getting corrections from the network card clock, updated in the last 10 seconds.",
+  temp: "Pi CPU temperature, a rough stand-in for the network card crystal's temperature, which shifts its frequency.",
+  used: "Satellites the receiver is using to work out time and position.",
+  tracked: "Satellites the receiver can hear right now.",
+  cnoCol: "Average signal strength for that constellation. Higher is better.",
+  st: "Stratum: how many steps that server is from a reference clock.",
+  reach: "Whether the last 8 queries got answers, shown in octal. 377 means all 8 did.",
+  poll: "How long chrony waits between asking that server for the time.",
+  peerOff: "How far this clock is from that server. Positive means this clock is ahead.",
+  err: "chrony's uncertainty for that offset, mostly from network delay.",
+  peerSd: "How noisy that server's measurements are. Lower is steadier.",
+};
+const peerSlot = {};  // name -> fixed color slot for this page session
+let range = "24h", status = null, history = null, clockOffset = 0, bestRtt = Infinity;
+
+// --- formatting ---
+function unitFor(a) { return a >= 1 ? [1, "s"] : a >= 1e-3 ? [1e3, "ms"] : a >= 1e-6 ? [1e6, "µs"] : [1e9, "ns"]; }
+function num(n, maxAbs, maxDp = 2) { const a = Math.abs(maxAbs ?? n); return n.toFixed(Math.min(maxDp, a >= 100 ? 0 : a >= 10 ? 1 : 2)); }
+function si(sec, signed) {
+  if (sec == null || !isFinite(sec)) return "—";
+  const [m, u] = unitFor(Math.abs(sec));
+  const s = num(sec * m, null, u === "ns" ? 1 : 2);  // sub-0.1 ns is below timestamp resolution
+  if (!+s) return "0 " + u;  // no "−0.0"
+  return (signed && sec > 0 ? "+" : "") + s.replace("-", "−") + " " + u;
+}
+function liveOff(sec) {  // servo offsets are whole ns
+  return Math.abs(sec) < 1e-6 ? (sec >= 5e-10 ? "+" : "") + Math.round(sec * 1e9).toString().replace("-", "−") + " ns" : si(sec, true);
+}
+const goodPeers = peers => peers.filter(p => p.mode === "^" && p.offset != null && p.reach !== "0" && p.state !== "x");
+function median(peers) {
+  const v = goodPeers(peers).map(p => p.offset).sort((a, b) => a - b);
+  return v.length ? (v.length % 2 ? v[v.length >> 1] : (v[v.length / 2 - 1] + v[v.length / 2]) / 2) : null;
+}
+function dur(s) {
+  if (s == null || !isFinite(s)) return "—";
+  const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
+  return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : m ? `${m}m` : `${Math.floor(s)}s`;
+}
+function pct(x) { return x == null ? "—" : (x >= 0.9999 ? (x * 100).toFixed(x === 1 ? 0 : 3) : (x * 100).toFixed(2)) + "%"; }
+function grade(x) { return x == null ? "" : x >= 0.999 ? "ok" : x >= 0.99 ? "warn" : "bad"; }
+function el(tag, attrs = {}, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) k === "class" ? e.className = v : k === "style" ? e.style.cssText = v : e.setAttribute(k, v);
+  for (const k of kids) e.append(k instanceof Node ? k : document.createTextNode(k ?? ""));
+  return e;
+}
+function row(cells, head) { return el("tr", {}, ...cells.map(c => c instanceof Node && c.tagName === (head ? "TH" : "TD") ? c : el(head ? "th" : "td", {}, c))); }
+function tip(text, help) { return el("span", {"data-tip": help, tabindex: 0}, text); }
+function numCell(text) { return el("td", {class: "num"}, text); }
+
+// --- clock ---
+function tick() {
+  const now = new Date(Date.now() + clockOffset);
+  $("utc").firstChild.nodeValue = now.toISOString().slice(11, 19) + " ";
+  setTimeout(tick, 1005 - (Date.now() + clockOffset) % 1000);
+}
+function clockSub() {
+  const date = new Date(Date.now() + clockOffset).toLocaleDateString(undefined, {weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone: "UTC"});
+  if (!isFinite(bestRtt)) return $("clock-sub").textContent = date;
+  const off = -clockOffset, err = bestRtt / 2;
+  const verdict = Math.abs(off) <= err ? `is in sync (±${err.toFixed(0)} ms)` : `is ${Math.abs(off).toFixed(0)} ms ${off > 0 ? "ahead" : "behind"} (±${err.toFixed(0)} ms)`;
+  $("clock-sub").textContent = `${date} · Your device ${verdict}`;
+}
+
+// --- tiles ---
+function tile(label, value, sub, labelHelp, subHelp) {
+  return el("div", {class: "tile"}, el("div", {class: "label"}, tip(label, labelHelp)), el("div", {class: "value"}, value),
+    el("div", {class: "sub muted"}, subHelp ? tip(sub, subHelp) : sub));
+}
+function renderTiles(s) {
+  const st = s.stats, h1 = st["1h"], g = s.gnss, c = s.chrony, phc = s.servo.phc, sys = s.servo.sys;
+  const fresh = x => x && x.age < 10;
+  const locked = s.status === "ok" ? (st.locked_since ? Math.max(0, s.now - st.locked_since) : 0) : null;
+  const fix = {0: "No fix", 1: "No fix", 2: "2D fix", 3: "3D fix"}[g.fix] ?? "Fix " + g.fix;
+  const tiles = [
+    tile("PHC offset vs PPS", fresh(phc) ? liveOff(phc.offset) : "—", "σ 1h " + si(h1.phc?.sd), HELP.phc, HELP.sd),
+    sys || h1.sys ? tile("System clock vs PHC", fresh(sys) ? liveOff(sys.offset) : "—", "σ 1h " + si(h1.sys?.sd), HELP.sys, HELP.sd)
+                  : tile("vs other NTP servers", median(s.peers) != null ? si(median(s.peers), true) : "—",
+                         `median of ${goodPeers(s.peers).length} servers`, HELP.vsNtp),
+    tile("Locked for", locked != null ? dur(locked) : "—", (locked != null ? "" : s.status_text + " · ") + (st["30d"].minutes < 0.9 * 43200 ? `${pct(st["30d"].avail)} of ${dur(st["30d"].minutes * 60)} recorded` : "30 days: " + pct(st["30d"].avail)), HELP.lockedFor, HELP.avail30),
+    tile("Satellites", `${g.used} / ${g.seen}`, `${fix} · used / tracked`, HELP.sats, HELP.fix),
+    tile("Signal", g.cno != null ? g.cno.toFixed(1) + " dB-Hz" : "—", "mean C/N₀ of used satellites", HELP.cno),
+    tile("Dilution", g.tdop != null ? "TDOP " + g.tdop.toFixed(2) : "—", g.pdop != null ? "PDOP " + g.pdop.toFixed(2) : "\u00a0", HELP.tdop, g.pdop != null && HELP.pdop),
+    tile("Stratum", c ? String(c.stratum) : "—", c ? `ref ${c.ref} · leap ${c.leap.toLowerCase()}` : "chrony not responding", HELP.stratum, c && HELP.ref),
+    tile("PHC frequency", fresh(phc) ? (phc.freq > 0 ? "+" : "") + phc.freq + " ppb" : "—",
+         s.temp != null ? `SoC ${s.temp.toFixed(1)} °C` : "\u00a0", HELP.freq, s.temp != null && HELP.temp),
+  ];
+  $("tiles").replaceChildren(...tiles);
+}
+
+// --- stability table + day strip ---
+function renderStats(st) {
+  const wins = ["1h", "24h", "7d", "30d"], t = $("stats");
+  const SPAN = {"1h": 60, "24h": 1440, "7d": 10080, "30d": 43200};  // minutes per window
+  const head = w => st[w].minutes < 0.9 * SPAN[w]
+    ? el("th", {}, tip(w + "*", `Only ${dur(st[w].minutes * 60)} of data in this window so far`)) : w;
+  const rows = [row(["", ...wins.map(head)], true), row([el("td", {}, tip("Locked", HELP.locked)), ...wins.map(w => numCell(pct(st[w].avail)))])];
+  for (const [src, [name, , short]] of Object.entries(SERVO)) {
+    if (!wins.some(w => st[w][src])) continue;
+    const label = (text, help) => el("td", {}, tip(short + " " + text, `${name}: ${help}`));
+    rows.push(row([label("σ", HELP.sd), ...wins.map(w => numCell(si(st[w][src]?.sd)))]));
+    rows.push(row([label("mean", HELP.mean), ...wins.map(w => numCell(si(st[w][src]?.mean, true)))]));
+    rows.push(row([label("max |x|", HELP.max), ...wins.map(w => numCell(si(st[w][src]?.max)))]));
+  }
+  t.replaceChildren(...rows);
+  $("days").replaceChildren(...st.days.map(([ts, frac]) => {
+    const day = new Date(ts * 1000).toLocaleDateString(undefined, {month: "short", day: "numeric", timeZone: "UTC"});
+    return el("span", {class: grade(frac), "data-tip": `${day}: ${frac == null ? "no data" : pct(frac) + " locked to GNSS"}`});
+  }));
+}
+
+// --- satellites ---
+function renderConstellations(s) {
+  const by = {};
+  for (const sat of s.sats) {
+    const b = by[sat.g] ??= {used: 0, seen: 0, ss: 0};
+    if (sat.ss > 0) { b.seen++; b.ss += sat.ss; }
+    if (sat.u) b.used++;
+  }
+  const rows = [row(["Constellation", tip("Used", HELP.used), tip("Tracked", HELP.tracked), tip("Mean C/N₀", HELP.cnoCol)], true)];
+  for (const g of Object.keys(by).sort((a, b) => by[b].used - by[a].used || a - b)) {
+    const b = by[g];
+    rows.push(row([el("td", {}, el("span", {class: "sw", style: `background:var(${GNSS_COLOR[g] ?? "--muted"})`}), GNSS[g] ?? "Other"),
+                   numCell(b.used), numCell(b.seen), numCell(b.seen ? (b.ss / b.seen).toFixed(1) + " dB-Hz" : "—")]));
+  }
+  if (rows.length === 1) rows.push(row([el("td", {colspan: 4, class: "muted"}, "No satellite data from gpsd")]));
+  $("constellations").replaceChildren(...rows);
+  const g = s.gnss, parts = [];
+  if (g.pdop != null) parts.push(`PDOP ${g.pdop.toFixed(2)}`);
+  if (g.tdop != null) parts.push(`TDOP ${g.tdop.toFixed(2)}`);
+  if (g.leap != null) parts.push(`GPS−UTC ${g.leap} s`);
+  $("gnss-sub").textContent = parts.join(" · ");
+}
+
+// --- NTP sources ---
+function slotFor(name) {
+  if (!(name in peerSlot)) peerSlot[name] = Object.keys(peerSlot).length;
+  return peerSlot[name] < 8 ? `--s${peerSlot[name] + 1}` : "--muted";
+}
+function renderPeers(peers) {
+  const STATE = {"*": "selected", "+": "combined", "-": "not combined", "?": "unusable or compare-only (noselect)", "x": "falseticker", "~": "too variable"};
+  const rows = [row(["Source", tip("St", HELP.st), tip("Reach", HELP.reach), el("th", {class: "wide"}, tip("Poll", HELP.poll)), tip("Offset", HELP.peerOff), el("th", {class: "wide"}, tip("±Error", HELP.err)), tip("σ", HELP.peerSd)], true)];
+  for (const p of peers) {
+    const sw = p.mode === "^" ? el("span", {class: "sw", style: `background:var(${slotFor(p.name)})`}) : el("span", {class: "sw"});
+    rows.push(row([el("td", {title: STATE[p.state] ?? p.state}, sw, el("span", {class: "num"}, p.state + " "), p.name),
+                   numCell(p.stratum), numCell(p.reach), el("td", {class: "num wide"}, p.poll >= 0 ? 2 ** p.poll + "s" : (2 ** p.poll).toFixed(2) + "s"),
+                   numCell(si(p.offset, true)), el("td", {class: "num wide"}, si(p.err)), numCell(si(p.sd))]));
+  }
+  if (rows.length === 1) rows.push(row([el("td", {colspan: 7, class: "muted"}, "No sources reported by chrony")]));
+  $("peers").replaceChildren(...rows);
+}
+
+function renderFooter(s) {
+  $("services").replaceChildren(...s.sources.map(v => el("span", {}, el("span", {class: "dot " + (v.ok ? "ok" : "bad")}),
+    tip(v.name, HELP[v.name]), v.ok ? "" : el("span", {class: "muted"}, "no data"))));
+}
+
+// --- charts ---
+function niceCeil(x) { const p = 10 ** Math.floor(Math.log10(x)), f = x / p; return ([1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10].find(n => f <= n)) * p; }
+function plot(box, series, x0, x1) {
+  const W = Math.max(260, box.clientWidth), H = box.clientHeight, L = 58, Rt = 6, T = 6, B = 20;
+  let max = 0;
+  for (const s of series) for (const p of s.pts) for (let i = 1; i < p.length; i++) if (p[i] != null) max = Math.max(max, Math.abs(p[i]));
+  if (!max) { box.replaceChildren(el("div", {class: "empty"}, "No data yet")); return; }
+  const [m, unit] = unitFor(max), top = niceCeil(max * m) / m;
+  const X = t => L + (t - x0) / (x1 - x0) * (W - L - Rt), Y = v => T + (top - v) / (2 * top) * (H - T - B);
+  const ns = "http://www.w3.org/2000/svg", svg = document.createElementNS(ns, "svg");
+  svg.setAttribute("width", W); svg.setAttribute("height", H); svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const add = (tag, a, text) => { const n = document.createElementNS(ns, tag); for (const k in a) n.setAttribute(k, a[k]); if (text != null) n.textContent = text; svg.append(n); return n; };
+  for (const v of [-top, -top / 2, 0, top / 2, top]) {
+    add("line", {x1: L, x2: W - Rt, y1: Y(v), y2: Y(v), stroke: cssVar(v ? "--line" : "--zero"), "stroke-width": 1});
+    add("text", {x: L - 6, y: Y(v) + 4, "text-anchor": "end", class: "axis"}, v ? (v > 0 ? "+" : "") + String(+(v * m).toPrecision(3)).replace("-", "−") + " " + unit : "0");
+  }
+  const span = x1 - x0, ticks = W < 520 ? 2 : 4;
+  const fmt = span <= 86400 ? {hour: "2-digit", minute: "2-digit", hourCycle: "h23"} : {month: "short", day: "numeric"};
+  for (let i = 0; i <= ticks; i++) {
+    const t = x0 + span * i / ticks;
+    add("text", {x: X(t), y: H - 4, "text-anchor": i ? i === ticks ? "end" : "middle" : "start", class: "axis"}, new Date(t * 1000).toLocaleString(undefined, fmt));
+  }
+  const segments = s => { const out = []; let cur = []; for (const p of s.pts) { if (cur.length && p[0] - cur[cur.length - 1][0] > s.gap) { out.push(cur); cur = []; } cur.push(p); } if (cur.length) out.push(cur); return out; };
+  for (const s of series) {
+    const color = cssVar(s.color);
+    for (const seg of segments(s)) {
+      if (s.band) add("polygon", {fill: color, "fill-opacity": .16, points: [...seg.map(p => `${X(p[0])},${Y(p[3])}`), ...seg.slice().reverse().map(p => `${X(p[0])},${Y(p[2])}`)].join(" ")});
+      if (seg.length === 1) add("circle", {cx: X(seg[0][0]), cy: Y(seg[0][1]), r: 2.5, fill: color});
+      else add("path", {d: seg.map((p, i) => (i ? "L" : "M") + X(p[0]).toFixed(1) + "," + Y(p[1]).toFixed(1)).join(""), fill: "none", stroke: color, "stroke-width": 2, "stroke-linejoin": "round"});
+    }
+  }
+  const cross = add("line", {y1: T, y2: H - B, stroke: cssVar("--muted"), "stroke-width": 1, visibility: "hidden"});
+  const tip = el("div", {class: "tip"});
+  box.replaceChildren(svg, tip);
+  svg.addEventListener("pointerleave", () => { cross.setAttribute("visibility", "hidden"); tip.style.display = "none"; });
+  svg.addEventListener("pointermove", ev => {
+    const x = ev.offsetX; if (x < L) return;
+    const t = x0 + (x - L) / (W - L - Rt) * span, lines = [];
+    for (const s of series) {
+      let best = null;
+      for (const p of s.pts) if (!best || Math.abs(p[0] - t) < Math.abs(best[0] - t)) best = p;
+      if (best && Math.abs(best[0] - t) <= s.gap / 2) lines.push([s, best]);
+    }
+    if (!lines.length) { cross.setAttribute("visibility", "hidden"); tip.style.display = "none"; return; }
+    const tx = X(lines[0][1][0]);
+    cross.setAttribute("x1", tx); cross.setAttribute("x2", tx); cross.setAttribute("visibility", "visible");
+    tip.replaceChildren(el("div", {class: "t"}, new Date(lines[0][1][0] * 1000).toLocaleString(undefined, {month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23"})),
+      ...lines.map(([s, p]) => el("div", {}, el("span", {class: "key", style: `background:${cssVar(s.color)}`}), el("b", {}, si(p[1], true)), " ", s.name,
+        s.band && p[2] != null ? el("span", {class: "t"}, ` (${si(p[2], true)} … ${si(p[3], true)})`) : "")));
+    tip.style.display = "block";
+    const w = tip.offsetWidth;
+    tip.style.left = Math.min(Math.max(0, tx + 12 + w > W ? tx - w - 12 : tx + 12), W - w) + "px";
+  });
+}
+function legend(id, series) {
+  $(id).replaceChildren(...series.map(s => el("span", {}, el("span", {class: "key", style: `background:${cssVar(s.color)}`}), s.name)));
+}
+function renderHistory() {
+  if (!history) return;
+  const h = history, step = h.step;
+  const servo = Object.entries(SERVO).filter(([k]) => h.servo[k]).map(([k, [name, color]]) => ({name, color, pts: h.servo[k], band: true, gap: step * 1.5}));
+  plot($("plot-servo"), servo, h.since, h.now);
+  legend("legend-servo", servo.length > 1 ? servo : []);
+  const falsetickers = new Set((status?.peers ?? []).filter(p => p.state === "x").map(p => p.name));
+  const peers = Object.entries(h.peers).filter(([name, pts]) => pts.length && !falsetickers.has(name)).map(([name, pts]) => ({name, color: slotFor(name), pts, gap: Math.max(step * 4, 2400)}));
+  plot($("plot-peers"), peers, h.since, h.now);
+  legend("legend-peers", peers);
+}
+
+// --- data ---
+async function loadStatus() {
+  const t0 = Date.now();
+  try {
+    const r = await fetch("/api/status", {cache: "no-store"});
+    const t1 = Date.now(), s = await r.json();
+    if (t1 - t0 <= bestRtt) { bestRtt = t1 - t0; clockOffset = s.now * 1000 - (t0 + t1) / 2; }
+    status = s;
+    $("status").className = "pill " + s.status;
+    $("status-text").textContent = s.status_text;
+    renderTiles(s); renderStats(s.stats); renderConstellations(s); renderPeers(s.peers); renderFooter(s);
+  } catch (e) {
+    $("status").className = "pill bad";
+    $("status-text").textContent = "Status unavailable";
+  }
+  clockSub();
+}
+async function loadHistory() {
+  for (const p of document.querySelectorAll(".plot")) p.classList.add("loading");
+  try { history = await (await fetch("/api/history?range=" + range)).json(); renderHistory(); } catch (e) {}
+  for (const p of document.querySelectorAll(".plot")) p.classList.remove("loading");
+}
+function showHint(t) {
+  const h = $("hint"), r = t.getBoundingClientRect();
+  h.textContent = t.dataset.tip;
+  h.style.display = "block";
+  const w = h.offsetWidth, hh = h.offsetHeight;
+  h.style.left = Math.min(Math.max(8, r.left), innerWidth - w - 8) + "px";
+  h.style.top = (r.top - hh - 6 < 8 ? r.bottom + 6 : r.top - hh - 6) + "px";
+}
+const hideHint = () => $("hint").style.display = "none";
+for (const ev of ["pointerover", "focusin"])
+  document.addEventListener(ev, e => { const t = e.target.closest?.("[data-tip]"); t ? showHint(t) : ev === "pointerover" && hideHint(); });
+document.addEventListener("focusout", hideHint);
+addEventListener("scroll", hideHint, {passive: true});
+$("range").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  range = b.dataset.r;
+  for (const x of $("range").children) x.setAttribute("aria-pressed", x === b);
+  loadHistory();
+});
+let resizeTimer;
+addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(renderHistory, 150); });
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", renderHistory);
+loadStatus().then(loadHistory);
+setInterval(loadStatus, 10000);
+setInterval(loadHistory, 60000);
+tick();
+</script>
+</body>
+</html>

@@ -169,6 +169,7 @@ An example configuration for a slave/client node is set up in `ptp-client-node.y
 ## Other Pi Time projects in this repository
 
   - [Raspberry Pi Pico Mini Rack GPS Clock](./pico-clock-mini-rack/README.md)
+  - [Time Status page](./time-status/README.md) (public NTP/GNSS status, enable with `time_status_enabled`)
   - [Chrony Dashboard](./chrony-dashboard/README.md)
   - [Fan Control](./fan-control/README.md)
 

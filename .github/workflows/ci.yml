@@ -29,3 +29,34 @@ jobs:
         run: |
           yamllint .
           ansible-lint
+
+  python:
+    name: Python
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the codebase.
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install test dependencies.
+        run: pip3 install pylint bandit
+
+      - name: Lint and security scan time-status.
+        run: |
+          pylint --max-line-length=120 --disable=missing-function-docstring,missing-class-docstring time-status/
+          bandit -ll -r time-status/
+
+      - name: Smoke test time-status (no data sources available).
+        run: |
+          DASH_PORT=8080 DASH_DB=/tmp/time-status.db python3 -I time-status/time_status.py &
+          sleep 3
+          curl -sfo /dev/null http://localhost:8080/
+          curl -sf http://localhost:8080/api/status | python3 -m json.tool > /dev/null
+          curl -sf "http://localhost:8080/api/history?range=24h" | python3 -m json.tool > /dev/null
+          curl -sI http://localhost:8080/ | grep -q "Content-Security-Policy: default-src 'none'"
+          test "$(curl -so /dev/null -w '%{http_code}' 'http://localhost:8080/api/history?range=x')" = 404
+          test "$(curl -so /dev/null -w '%{http_code}' --path-as-is 'http://localhost:8080/../../etc/passwd')" = 404
