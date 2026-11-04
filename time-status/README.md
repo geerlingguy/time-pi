@@ -11,7 +11,7 @@ Python 3 stdlib only (no pip packages, no JS libraries). History is kept in SQLi
 | PHC vs GPS PPS offset, servo state, frequency | `ts2phc` log lines in the journal (needs `ts2phc_logging_level: 6`, the default) |
 | System clock vs PHC offset | `phc2sys` log lines (optional, needs `phc2sys_logging_level: 6`) |
 | Fix, satellites, C/N₀, DOP, GPS−UTC | `gpsd` JSON on `localhost:2947` |
-| Stratum, reference, other NTP servers | `chronyc -h 127.0.0.1` `tracking`, `sources`, `sourcestats` (unprivileged UDP monitoring port) |
+| Stratum, reference, other NTP servers | `chronyc -h 127.0.0.1` `tracking`, `sources`, `sourcestats` (unprivileged UDP monitoring port); servers configured by hostname show that name (`chronyc -N`), pool members show their IP |
 
 The footer dots show whether each data source (gpsd, chrony, ts2phc, and phc2sys if it logs offsets) has reported in the last 10 seconds.
 

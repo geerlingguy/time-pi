@@ -42,6 +42,7 @@ GNSS_IDS = range(8)
 # linuxptp servo lines, e.g. "/dev/ptp0 offset -3 s2 freq +1234" or "CLOCK_REALTIME phc offset 5 s2 freq -12 delay 456".
 OFFSET_RE = re.compile(r"offset\s+(-?\d{1,12})\s+s([0-2])\s+freq\s+([+-]?\d{1,12})")
 SERVO_SRC = {"ts2phc": "phc", "phc2sys": "sys"}
+HOSTNAME_RE = re.compile(r"[A-Za-z0-9.-]{1,64}")
 
 lock = threading.Lock()
 live = {"gnss": {}, "sats": [], "servo": {}, "chrony": None, "peers": [], "adev": {}}
@@ -175,12 +176,11 @@ def poll_chrony():
         t = chronyc("tracking")[0]
         tracking = {"ref": refid_name(t[0], t[1])[:16], "stratum": int(t[2]), "leap": t[13][:16]}
         stats = {r[0]: r for r in chronyc("sourcestats") if len(r) >= 8}
+        rows = [r for r in chronyc("sources")[:32] if len(r) >= 10]
         peers = []
-        for r in chronyc("sources")[:32]:
-            if len(r) < 10:
-                continue
+        for r, label in zip(rows, source_labels(rows)):
             st = stats.get(r[2])
-            peers.append({"mode": r[0][:1], "state": r[1][:1], "name": r[2][:64], "stratum": int(r[3]),
+            peers.append({"mode": r[0][:1], "state": r[1][:1], "addr": r[2][:64], "name": label, "stratum": int(r[3]),
                           "poll": int(r[4]), "reach": r[5][:3],
                           "lastrx": int(r[6]) if r[6].isdigit() else 1 << 31,
                           "offset": finite(r[7]), "err": finite(r[9]),
@@ -189,6 +189,20 @@ def poll_chrony():
         log(f"chronyc: {e}")
         return None, []
     return tracking, peers
+
+
+def source_labels(rows):
+    """Configured hostnames for servers set up by name; IP addresses for everything else.
+
+    `chronyc -N` prints names as written in chrony.conf. Pool members all print the pool's
+    name, so a name that repeats (or a mismatched listing) falls back to the IP address.
+    """
+    ips = [r[2][:64] for r in rows]
+    named = [r[2][:64] for r in chronyc("-N", "sources")[:32] if len(r) >= 10]
+    if len(named) != len(ips):
+        return ips
+    return [n if named.count(n) == 1 and n != ip and HOSTNAME_RE.fullmatch(n) else ip
+            for n, ip in zip(named, ips)]
 
 
 def read_temp():
@@ -204,7 +218,7 @@ def display_names(peers):
     names, lan = {}, 0
     for p in peers:
         try:
-            private = ipaddress.ip_address(p["name"]).is_private
+            private = ipaddress.ip_address(p["addr"]).is_private
         except ValueError:
             private = False
         if private:
@@ -385,7 +399,7 @@ def api_status():
         chrony, peers, adev = live["chrony"], live["peers"], live["adev"]
         gnss_age = now - live["gnss"].get("ts", 0)
     names = display_names(peers)
-    peers = [{**{k: v for k, v in p.items() if k != "lastrx"}, "name": names[p["name"]]} for p in peers]
+    peers = [{**{k: v for k, v in p.items() if k not in ("lastrx", "addr")}, "name": names[p["name"]]} for p in peers]
     phc = servo.get("phc")
     sys_clk = servo.get("sys")
     # The system clock (what NTP serves) must track the PHC too, when phc2sys logs offsets.
