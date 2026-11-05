@@ -9,7 +9,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='6.5' fill='none' stroke='%2350fa7b' stroke-width='2'/%3E%3Cpath d='M8 4v4l3 2' fill='none' stroke='%2350fa7b' stroke-width='2'/%3E%3C/svg%3E">
 <style>
 :root {
-  --bg: #ffffff; --ink: #232333; --muted: #737373; --line: #e6e6e6; --zero: #c3c2b7; --dots: #663399;
+  --bg: #ffffff; --ink: #232333; --head: #232333; --muted: #737373; --line: #e6e6e6; --zero: #c3c2b7; --dots: #663399;
   --link: rgba(80, 250, 123, 0.9);
   --ok: #0ca30c; --ok-ink: #006300; --warn: #fab219; --bad: #d03b3b; --none: #d9d9d9;
   --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4; --s6: #008300; --s7: #6250d6; --s8: #e34948;
@@ -17,20 +17,22 @@
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #202124; --ink: #ffffff; --muted: #b0b0b0; --line: #3a3a3a; --zero: #5a5a5a; --dots: #0066ff;
+    --bg: #202124; --ink: #ffffff; --head: #dddddd; --muted: #b0b0b0; --line: #3a3a3a; --zero: #5a5a5a; --dots: #0066ff;
     --link: rgba(80, 250, 123, 0.45);
     --ok-ink: #50fa7b; --none: #3a3a3a;
     --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767;
   }
 }
 * { box-sizing: border-box; }
-html { font-family: Helvetica, Arial, sans-serif; font-size: 15px; line-height: 1.5; color: var(--ink); background: var(--bg); }
+html { font-family: Helvetica, Arial, sans-serif; font-size: 15px; line-height: 1.6; color: var(--ink); background: var(--bg); }
 body { margin: 0; }
 main { max-width: 920px; margin: 0 auto; padding: 1rem 1rem 0; }
 a { color: inherit; text-decoration: none; border-bottom: 1px solid var(--link); }
-h1 { font-size: 1.9rem; font-weight: bold; margin: 0; line-height: 1.2; }
-h2 { font-size: 1.4rem; font-weight: normal; margin: 2rem 0 .5rem; }
-h3 { font-size: 1rem; font-weight: normal; margin: 0; }
+/* Sizes match jeffgeerling.com: site name 3rem, h2 1.6rem, h3 1.4rem. */
+h1 { font-size: clamp(2rem, 8vw, 3rem); font-weight: bold; margin: 0; line-height: 1.2; overflow-wrap: anywhere; }
+h2, h3 { font-weight: normal; line-height: 1.2; color: var(--head); }
+h2 { font-size: 1.6rem; margin: 1.3em 0 .5em; }
+h3 { font-size: 1.4rem; margin: 0; }
 .muted, .sub { color: var(--muted); }
 .small { font-size: .85rem; }
 .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
@@ -61,7 +63,7 @@ header .sub { margin: .1rem 0 0; }
 .range button + button { border-left: 1px solid var(--line); }
 .range button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
 
-.chart { margin: .75rem 0 1.25rem; }
+.chart { margin: 1.5rem 0 1.25rem; }
 .chart .head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .25rem 1rem; align-items: baseline; }
 .legend { display: flex; flex-wrap: wrap; gap: .2rem .9rem; font-size: .8rem; color: var(--muted); }
 .key { display: inline-block; width: 14px; height: 2px; vertical-align: middle; margin-right: .35rem; border-radius: 1px; }
