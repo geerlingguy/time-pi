@@ -79,6 +79,10 @@ header .sub { margin: .1rem 0 0; }
 .tip .t { color: var(--muted); }
 
 .scroll { overflow-x: auto; }
+details { margin-top: .5rem; }
+summary { cursor: pointer; color: var(--muted); font-size: .9rem; width: max-content; }
+summary:hover { color: var(--ink); }
+details[open] summary { margin-bottom: .25rem; }
 table { border-collapse: collapse; width: 100%; font-size: .9rem; }
 th, td { padding: .35rem .5rem; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
 th { font-weight: normal; color: var(--muted); font-size: .8rem; }
@@ -131,6 +135,11 @@ footer { margin-top: 2.5rem; padding: 1.25rem 0 2rem; border-top: .4rem dotted v
     <div class="head"><h3>Compared to other NTP servers</h3><div class="legend" id="legend-peers"></div></div>
     <div class="muted small">This clock relative to each server as measured by chrony; positive = this clock ahead. Includes network path asymmetry; falsetickers are not charted.</div>
     <div class="plot" id="plot-peers"></div>
+    <details>
+      <summary>NTP sources</summary>
+      <div class="scroll"><table id="peers"></table></div>
+      <p class="muted small">Offsets from <code>chronyc sources</code>, σ from <code>chronyc sourcestats</code>. State: * selected, + combined, - not combined, ? unusable or compare-only (noselect), x falseticker, ~ too variable.</p>
+    </details>
   </div>
 
   <h2>Stability</h2>
@@ -149,10 +158,6 @@ footer { margin-top: 2.5rem; padding: 1.25rem 0 2rem; border-top: .4rem dotted v
   <h2>Satellites</h2>
   <div class="scroll"><table id="constellations"></table></div>
   <p class="muted small" id="gnss-sub"></p>
-
-  <h2>NTP sources</h2>
-  <div class="scroll"><table id="peers"></table></div>
-  <p class="muted small">Offsets from <code>chronyc sources</code>, σ from <code>chronyc sourcestats</code>. State: * selected, + combined, - not combined, ? unusable or compare-only (noselect), x falseticker, ~ too variable.</p>
 
   <footer>
     <div class="services" id="services"></div>
