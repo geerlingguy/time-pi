@@ -17,7 +17,8 @@ chrony_refclock: |
 
   # Uncomment to have chrony discipline the system clock from the NIC's PHC
   # (set chrony_discipline_clock: true, stop phc2sys, and remove 'local' above).
-  # The PHC keeps TAI, so chrony needs the leap second list (chrony 4.5+).
+  # The PHC keeps TAI, so chrony needs leap second data: leapseclist on chrony 4.6+,
+  # or 'leapsectz right/UTC' on older chrony (needs /usr/share/zoneinfo/right/UTC).
   #refclock PHC /dev/ptp0 refid PHC poll 0 dpoll -2 tai prefer
   #leapseclist /usr/share/zoneinfo/leap-seconds.list
 
