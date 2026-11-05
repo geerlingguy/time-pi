@@ -128,7 +128,7 @@ footer { margin-top: 2.5rem; padding: 1.25rem 0 2rem; border-top: .4rem dotted v
   </div>
   <div class="chart">
     <div class="head"><h3>Clock offset vs GNSS</h3><div class="legend" id="legend-servo"></div></div>
-    <div class="muted small">PHC vs GPS PPS (ts2phc) and system clock vs PHC (phc2sys); line is the mean, band is min–max. These are in-loop servo residuals, not absolute accuracy vs UTC.</div>
+    <div class="muted small">PHC vs GPS PPS (ts2phc) and system clock vs PHC (phc2sys, or chrony's PHC refclock); line is the mean, band is min–max. These are in-loop servo residuals, not absolute accuracy vs UTC.</div>
     <div class="plot" id="plot-servo"></div>
   </div>
   <div class="chart">
@@ -195,6 +195,7 @@ const HELP = {
   chrony: "The NTP server (chrony) is answering.",
   ts2phc: "The network card clock is getting GPS pulse corrections, updated in the last 10 seconds.",
   phc2sys: "The Pi's clock is getting corrections from the network card clock, updated in the last 10 seconds.",
+  "chrony PHC": "chrony is steering the Pi's clock from the network card clock, updated in the last 25 seconds.",
   temp: "Pi CPU temperature, a rough stand-in for the network card crystal's temperature, which shifts its frequency.",
   used: "Satellites the receiver is using to work out time and position.",
   tracked: "Satellites the receiver can hear right now.",
@@ -265,7 +266,7 @@ function tile(label, value, sub, labelHelp, subHelp) {
 }
 function renderTiles(s) {
   const st = s.stats, h1 = st["1h"], g = s.gnss, c = s.chrony, phc = s.servo.phc, sys = s.servo.sys;
-  const fresh = x => x && x.age < 10;
+  const fresh = x => x && x.age < (x.via === "chrony" ? 25 : 10);  // chrony refclock is read every 15 s
   const locked = s.status === "ok" ? (st.locked_since ? Math.max(0, s.now - st.locked_since) : 0) : null;
   const fix = {0: "No fix", 1: "No fix", 2: "2D fix", 3: "3D fix"}[g.fix] ?? "Fix " + g.fix;
   const tiles = [

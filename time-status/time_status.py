@@ -138,10 +138,11 @@ def journal_reader():
         time.sleep(5)
 
 
-def record(src, offset_ns, servo_state, freq_ppb):
+def record(src, offset_ns, servo_state, freq_ppb, via=None):
     now = time.time()
     with lock:
-        live["servo"][src] = {"offset": offset_ns * 1e-9, "state": servo_state, "freq": freq_ppb, "ts": now}
+        live["servo"][src] = {"offset": offset_ns * 1e-9, "state": servo_state, "freq": freq_ppb, "ts": now,
+                              "via": via or src}
         a = acc.setdefault((int(now) // 60 * 60, src),
                            {"total": 0, "n": 0, "sum": 0.0, "sumsq": 0.0, "min": None, "max": None, "freq": 0.0})
         a["total"] += 1
@@ -175,6 +176,7 @@ def poll_chrony():
     try:
         t = chronyc("tracking")[0]
         tracking = {"ref": refid_name(t[0], t[1])[:16], "stratum": int(t[2]), "leap": t[13][:16]}
+        freq_ppm = finite(t[7])
         stats = {r[0]: r for r in chronyc("sourcestats") if len(r) >= 8}
         rows = [r for r in chronyc("sources")[:32] if len(r) >= 10]
         peers = []
@@ -187,8 +189,8 @@ def poll_chrony():
                           "sd": finite(st[7]) if st else None})
     except (OSError, subprocess.SubprocessError, IndexError, ValueError) as e:
         log(f"chronyc: {e}")
-        return None, []
-    return tracking, peers
+        return None, [], None
+    return tracking, peers, freq_ppm
 
 
 def source_labels(rows):
@@ -326,12 +328,26 @@ def adev_worker():
         time.sleep(ADEV_EVERY)
 
 
+def record_phc_refclock(peers, freq_ppm, now):
+    """System clock vs PHC from chrony's PHC refclock, when chrony (not phc2sys) disciplines the clock."""
+    with lock:
+        sys_clk = live["servo"].get("sys")
+        if sys_clk and sys_clk["via"] != "chrony" and now - sys_clk["ts"] < STALE:
+            return  # phc2sys is logging offsets
+    for p in peers:
+        if p["mode"] == "#" and p["addr"].startswith("PHC") and p["offset"] is not None and p["lastrx"] < POLL:
+            record("sys", round(p["offset"] * 1e9), 2 if p["state"] == "*" else 0,
+                   (freq_ppm or 0) * 1000, via="chrony")
+            return
+
+
 def poller():
     last_prune, last_minute = 0, int(time.time()) // 60
     while True:
         try:
-            tracking, peers = poll_chrony()
+            tracking, peers, freq_ppm = poll_chrony()
             now = time.time()
+            record_phc_refclock(peers, freq_ppm, now)
             new = [(int(now - p["lastrx"]), p["name"], p["offset"]) for p in peers
                    if p["mode"] == "^" and p["lastrx"] < POLL and p["reach"] != "0" and p["offset"] is not None]
             if new:
@@ -389,11 +405,16 @@ def window_stats():
     return out
 
 
+def fresh(servo):
+    """Recent enough? chrony refclock samples are only read every POLL seconds."""
+    return servo["age"] < STALE + (POLL if servo["via"] == "chrony" else 0)
+
+
 def api_status():
     now = time.time()
     with lock:
-        servo = {k: {"offset": v["offset"], "state": v["state"], "freq": v["freq"], "age": now - v["ts"]}
-                 for k, v in live["servo"].items()}
+        servo = {k: {"offset": v["offset"], "state": v["state"], "freq": v["freq"], "age": now - v["ts"],
+                     "via": v["via"]} for k, v in live["servo"].items()}
         gnss = gnss_summary()
         sats = [{"g": s["g"], "ss": s["ss"], "u": s["u"]} for s in live["sats"]] if gnss["seen"] or gnss["used"] else []
         chrony, peers, adev = live["chrony"], live["peers"], live["adev"]
@@ -402,14 +423,14 @@ def api_status():
     peers = [{**{k: v for k, v in p.items() if k not in ("lastrx", "addr")}, "name": names[p["name"]]} for p in peers]
     phc = servo.get("phc")
     sys_clk = servo.get("sys")
-    # The system clock (what NTP serves) must track the PHC too, when phc2sys logs offsets.
-    phc_ok = (phc and phc["age"] < STALE and phc["state"] == 2
-              and (not sys_clk or (sys_clk["age"] < STALE and sys_clk["state"] == 2)))
+    # The system clock (what NTP serves) must track the PHC too, when its offsets are known.
+    phc_ok = (phc and fresh(phc) and phc["state"] == 2
+              and (not sys_clk or (fresh(sys_clk) and sys_clk["state"] == 2)))
     # Health from each data source's freshness, not systemd state (a running daemon can still be stuck).
     sources = [{"name": "gpsd", "ok": gnss_age < STALE}, {"name": "chrony", "ok": chrony is not None},
-               {"name": "ts2phc", "ok": bool(phc and phc["age"] < STALE)}]
-    if "sys" in servo:  # only known when phc2sys logs offsets
-        sources.append({"name": "phc2sys", "ok": servo["sys"]["age"] < STALE})
+               {"name": "ts2phc", "ok": bool(phc and fresh(phc))}]
+    if sys_clk:  # from phc2sys logs or chrony's PHC refclock
+        sources.append({"name": "chrony PHC" if sys_clk["via"] == "chrony" else "phc2sys", "ok": fresh(sys_clk)})
     if not chrony:
         status = ("bad", "NTP service down")
     elif phc_ok and gnss["fix"] >= 2:
