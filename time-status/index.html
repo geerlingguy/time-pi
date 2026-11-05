@@ -70,13 +70,19 @@ header .sub { margin: .1rem 0 0; }
 .plot svg { display: block; overflow: visible; }
 .plot .empty { height: 100%; display: grid; place-items: center; color: var(--muted); border: 1px dashed var(--line); border-radius: 5px; font-size: .9rem; }
 .axis { fill: var(--muted); font: 11px var(--mono); }
+.axis.sup { font: 12px Helvetica, Arial, sans-serif; }
 .tip { position: absolute; top: 0; pointer-events: none; background: var(--bg); border: 1px solid var(--line); border-radius: 5px; padding: .3rem .5rem; font-size: .8rem; white-space: nowrap; box-shadow: 0 2px 8px rgba(0,0,0,.12); display: none; z-index: 2; }
 [data-tip] { cursor: help; }
 #hint { position: fixed; z-index: 10; max-width: 260px; pointer-events: none; background: var(--ink); color: var(--bg); border-radius: 5px; padding: .4rem .55rem; font-size: .8rem; line-height: 1.35; display: none; }
 .tip b { font-family: var(--mono); font-weight: bold; }
+.tip b.sup { font-family: Helvetica, Arial, sans-serif; }
 .tip .t { color: var(--muted); }
 
 .scroll { overflow-x: auto; }
+details { margin-top: .5rem; }
+summary { cursor: pointer; color: var(--muted); font-size: .9rem; width: max-content; }
+summary:hover { color: var(--ink); }
+details[open] summary { margin-bottom: .25rem; }
 table { border-collapse: collapse; width: 100%; font-size: .9rem; }
 th, td { padding: .35rem .5rem; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
 th { font-weight: normal; color: var(--muted); font-size: .8rem; }
@@ -122,13 +128,18 @@ footer { margin-top: 2.5rem; padding: 1.25rem 0 2rem; border-top: .4rem dotted v
   </div>
   <div class="chart">
     <div class="head"><h3>Clock offset vs GNSS</h3><div class="legend" id="legend-servo"></div></div>
-    <div class="muted small">PHC vs GPS PPS (ts2phc) and system clock vs PHC (phc2sys); line is the mean, band is min–max. These are in-loop servo residuals, not absolute accuracy vs UTC.</div>
+    <div class="muted small">PHC vs GPS PPS (ts2phc) and system clock vs PHC (phc2sys, or chrony's PHC refclock); line is the mean, band is min–max. These are in-loop servo residuals, not absolute accuracy vs UTC.</div>
     <div class="plot" id="plot-servo"></div>
   </div>
   <div class="chart">
     <div class="head"><h3>Compared to other NTP servers</h3><div class="legend" id="legend-peers"></div></div>
     <div class="muted small">This clock relative to each server as measured by chrony; positive = this clock ahead. Includes network path asymmetry; falsetickers are not charted.</div>
     <div class="plot" id="plot-peers"></div>
+    <details>
+      <summary>NTP sources</summary>
+      <div class="scroll"><table id="peers"></table></div>
+      <p class="muted small">Offsets from <code>chronyc sources</code>, σ from <code>chronyc sourcestats</code>. State: * selected, + combined, - not combined, ? unusable or compare-only (noselect), x falseticker, ~ too variable.</p>
+    </details>
   </div>
 
   <h2>Stability</h2>
@@ -138,14 +149,15 @@ footer { margin-top: 2.5rem; padding: 1.25rem 0 2rem; border-top: .4rem dotted v
     <span>Time locked to GNSS, last 30 days (UTC)</span>
     <span><span class="dot ok"></span>≥ 99.9%<span class="dot warn"></span>≥ 99%<span class="dot bad"></span>&lt; 99%<span class="dot"></span>no data</span>
   </div>
+  <div class="chart">
+    <div class="head"><h3><span tabindex="0" data-tip="How much each oscillator's rate wanders when averaged over time τ. Lower is steadier: 1×10⁻⁹ means its rate varies by about 1 ns per second.">Frequency stability (Allan deviation)</span></h3><div class="legend" id="legend-adev"></div></div>
+    <div class="muted small">Overlapping ADEV over the last 30 days, from each servo's per-minute frequency corrections against GPS. Only the part well above the dashed GPS PPS noise floor describes the oscillator itself.</div>
+    <div class="plot" id="plot-adev"></div>
+  </div>
 
   <h2>Satellites</h2>
   <div class="scroll"><table id="constellations"></table></div>
   <p class="muted small" id="gnss-sub"></p>
-
-  <h2>NTP sources</h2>
-  <div class="scroll"><table id="peers"></table></div>
-  <p class="muted small">Offsets from <code>chronyc sources</code>, σ from <code>chronyc sourcestats</code>. State: * selected, + combined, - not combined, ? unusable or compare-only (noselect), x falseticker, ~ too variable.</p>
 
   <footer>
     <div class="services" id="services"></div>
@@ -183,6 +195,7 @@ const HELP = {
   chrony: "The NTP server (chrony) is answering.",
   ts2phc: "The network card clock is getting GPS pulse corrections, updated in the last 10 seconds.",
   phc2sys: "The Pi's clock is getting corrections from the network card clock, updated in the last 10 seconds.",
+  "chrony PHC": "chrony is steering the Pi's clock from the network card clock, updated in the last 25 seconds.",
   temp: "Pi CPU temperature, a rough stand-in for the network card crystal's temperature, which shifts its frequency.",
   used: "Satellites the receiver is using to work out time and position.",
   tracked: "Satellites the receiver can hear right now.",
@@ -253,7 +266,7 @@ function tile(label, value, sub, labelHelp, subHelp) {
 }
 function renderTiles(s) {
   const st = s.stats, h1 = st["1h"], g = s.gnss, c = s.chrony, phc = s.servo.phc, sys = s.servo.sys;
-  const fresh = x => x && x.age < 10;
+  const fresh = x => x && x.age < (x.via === "chrony" ? 25 : 10);  // chrony refclock is read every 15 s
   const locked = s.status === "ok" ? (st.locked_since ? Math.max(0, s.now - st.locked_since) : 0) : null;
   const fix = {0: "No fix", 1: "No fix", 2: "2D fix", 3: "3D fix"}[g.fix] ?? "Fix " + g.fix;
   const tiles = [
@@ -393,6 +406,62 @@ function plot(box, series, x0, x1) {
     tip.style.left = Math.min(Math.max(0, tx + 12 + w > W ? tx - w - 12 : tx + 12), W - w) + "px";
   });
 }
+function sup(n) { return String(n).replace("-", "⁻").replace(/\d/g, d => "⁰¹²³⁴⁵⁶⁷⁸⁹"[d]); }
+function sci(v) { const e = Math.floor(Math.log10(v)); return (v / 10 ** e).toFixed(1) + "×10" + sup(e); }
+function tauLabel(t) { return t < 3600 ? Math.round(t / 60) + " min" : t < 86400 ? +(t / 3600).toFixed(1) + " h" : +(t / 86400).toFixed(1) + " d"; }
+function loglog(box, series) {
+  const all = series.flatMap(s => s.pts).filter(p => p[1] > 0);
+  const data = series.filter(s => !s.dash).flatMap(s => s.pts).filter(p => p[1] > 0);
+  if (!data.length) { box.replaceChildren(el("div", {class: "empty"}, "Needs a few hours of locked data")); return; }
+  const W = Math.max(260, box.clientWidth), H = box.clientHeight, L = 58, Rt = 6, T = 6, B = 20, lg = Math.log10;
+  const x0 = lg(60), x1 = Math.max(lg(86400), lg(Math.max(...data.map(p => p[0]))));
+  let y0 = Math.floor(lg(Math.min(...all.map(p => p[1])))), y1 = Math.ceil(lg(Math.max(...all.map(p => p[1]))));
+  if (y1 - y0 < 2) y0 = y1 - 2;
+  const X = t => L + (lg(t) - x0) / (x1 - x0) * (W - L - Rt), Y = v => T + (y1 - lg(v)) / (y1 - y0) * (H - T - B);
+  const ns = "http://www.w3.org/2000/svg", svg = document.createElementNS(ns, "svg");
+  svg.setAttribute("width", W); svg.setAttribute("height", H); svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const add = (tag, a, text) => { const n = document.createElementNS(ns, tag); for (const k in a) n.setAttribute(k, a[k]); if (text != null) n.textContent = text; svg.append(n); return n; };
+  for (let e = y0; e <= y1; e++) {
+    add("line", {x1: L, x2: W - Rt, y1: Y(10 ** e), y2: Y(10 ** e), stroke: cssVar("--line"), "stroke-width": 1});
+    add("text", {x: L - 6, y: Y(10 ** e) + 4, "text-anchor": "end", class: "axis sup"}, "10" + sup(e));
+  }
+  for (let e = Math.ceil(x0); e <= Math.floor(x1); e++)
+    add("text", {x: X(10 ** e), y: H - 4, "text-anchor": e === Math.floor(x1) ? "end" : "middle", class: "axis sup"}, "10" + sup(e) + " s");
+  for (const s of series) {
+    const color = cssVar(s.color), pts = s.pts.filter(p => p[1] > 0);
+    add("path", {d: pts.map((p, i) => (i ? "L" : "M") + X(p[0]).toFixed(1) + "," + Y(p[1]).toFixed(1)).join(""), fill: "none",
+                 stroke: color, "stroke-width": s.dash ? 1.5 : 2, "stroke-dasharray": s.dash ? "4 4" : "none", "stroke-linejoin": "round"});
+    if (!s.dash) for (const p of pts) add("circle", {cx: X(p[0]), cy: Y(p[1]), r: 3, fill: color});
+  }
+  const cross = add("line", {y1: T, y2: H - B, stroke: cssVar("--muted"), "stroke-width": 1, visibility: "hidden"});
+  const tip = el("div", {class: "tip"});
+  box.replaceChildren(svg, tip);
+  const taus = [...new Set(all.map(p => p[0]))].sort((a, b) => a - b);
+  svg.addEventListener("pointerleave", () => { cross.setAttribute("visibility", "hidden"); tip.style.display = "none"; });
+  svg.addEventListener("pointermove", ev => {
+    if (ev.offsetX < L) return;
+    const tau = taus.reduce((a, b) => Math.abs(X(b) - ev.offsetX) < Math.abs(X(a) - ev.offsetX) ? b : a), tx = X(tau);
+    cross.setAttribute("x1", tx); cross.setAttribute("x2", tx); cross.setAttribute("visibility", "visible");
+    tip.replaceChildren(el("div", {class: "t"}, `τ = ${tau} s (${tauLabel(tau)})`),
+      ...series.map(s => [s, s.pts.find(p => p[0] === tau)]).filter(([, p]) => p).map(([s, p]) =>
+        el("div", {}, el("span", {class: "key", style: `background:${cssVar(s.color)}`}), el("b", {class: "sup"}, sci(p[1])), " ", s.name)));
+    tip.style.display = "block";
+    const w = tip.offsetWidth;
+    tip.style.left = Math.min(Math.max(0, tx + 12 + w > W ? tx - w - 12 : tx + 12), W - w) + "px";
+  });
+}
+let adevKey = "";
+function renderAdev(force) {
+  const a = status?.adev ?? {}, sd = status?.stats?.["24h"]?.phc?.sd, key = JSON.stringify([a, sd]);
+  if (!force && key === adevKey) return;  // re-render only on new data, so an open tooltip survives polling
+  adevKey = key;
+  const NAMES = {phc: ["NIC oscillator (PHC)", "--s1"], sys: ["Pi oscillator (system clock)", "--s2"]};
+  const series = Object.entries(NAMES).filter(([k]) => a[k]?.length).map(([k, [name, color]]) => ({name, color, pts: a[k]}));
+  if (series.length && sd) series.push({name: "GPS PPS noise floor (est.)", color: "--muted", dash: true,
+    pts: series[0].pts.map(([tau]) => [tau, Math.sqrt(3) * sd / tau])});  // white phase noise: √3·σ/τ
+  loglog($("plot-adev"), series);
+  legend("legend-adev", series);
+}
 function legend(id, series) {
   $(id).replaceChildren(...series.map(s => el("span", {}, el("span", {class: "key", style: `background:${cssVar(s.color)}`}), s.name)));
 }
@@ -418,7 +487,7 @@ async function loadStatus() {
     status = s;
     $("status").className = "pill " + s.status;
     $("status-text").textContent = s.status_text;
-    renderTiles(s); renderStats(s.stats); renderConstellations(s); renderPeers(s.peers); renderFooter(s);
+    renderTiles(s); renderStats(s.stats); renderAdev(); renderConstellations(s); renderPeers(s.peers); renderFooter(s);
   } catch (e) {
     $("status").className = "pill bad";
     $("status-text").textContent = "Status unavailable";
@@ -450,8 +519,9 @@ $("range").addEventListener("click", e => {
   loadHistory();
 });
 let resizeTimer;
-addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(renderHistory, 150); });
-matchMedia("(prefers-color-scheme: dark)").addEventListener("change", renderHistory);
+const redraw = () => { renderHistory(); renderAdev(true); };
+addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(redraw, 150); });
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", redraw);
 loadStatus().then(loadHistory);
 setInterval(loadStatus, 10000);
 setInterval(loadHistory, 60000);

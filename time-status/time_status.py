@@ -31,6 +31,7 @@ DB_PATH = os.environ.get("DASH_DB", os.path.join(os.environ.get("STATE_DIRECTORY
 POLL = 15           # seconds between chrony/systemd polls
 STALE = 10          # seconds before a servo or GNSS reading counts as stale
 CACHE_TTL = 30      # seconds to cache DB-backed API results
+ADEV_EVERY = 600    # seconds between Allan deviation updates
 MAX_CONN = 32       # concurrent HTTP connections; extras are dropped
 MAX_LINE = 1 << 16  # longest gpsd line accepted
 MAX_SATS = 256
@@ -41,9 +42,10 @@ GNSS_IDS = range(8)
 # linuxptp servo lines, e.g. "/dev/ptp0 offset -3 s2 freq +1234" or "CLOCK_REALTIME phc offset 5 s2 freq -12 delay 456".
 OFFSET_RE = re.compile(r"offset\s+(-?\d{1,12})\s+s([0-2])\s+freq\s+([+-]?\d{1,12})")
 SERVO_SRC = {"ts2phc": "phc", "phc2sys": "sys"}
+HOSTNAME_RE = re.compile(r"[A-Za-z0-9.-]{1,64}")
 
 lock = threading.Lock()
-live = {"gnss": {}, "sats": [], "servo": {}, "chrony": None, "peers": []}
+live = {"gnss": {}, "sats": [], "servo": {}, "chrony": None, "peers": [], "adev": {}}
 acc = {}  # (minute, src) -> per-minute servo accumulator
 db_lock = threading.Lock()
 cache_lock = threading.Lock()
@@ -136,10 +138,11 @@ def journal_reader():
         time.sleep(5)
 
 
-def record(src, offset_ns, servo_state, freq_ppb):
+def record(src, offset_ns, servo_state, freq_ppb, via=None):
     now = time.time()
     with lock:
-        live["servo"][src] = {"offset": offset_ns * 1e-9, "state": servo_state, "freq": freq_ppb, "ts": now}
+        live["servo"][src] = {"offset": offset_ns * 1e-9, "state": servo_state, "freq": freq_ppb, "ts": now,
+                              "via": via or src}
         a = acc.setdefault((int(now) // 60 * 60, src),
                            {"total": 0, "n": 0, "sum": 0.0, "sumsq": 0.0, "min": None, "max": None, "freq": 0.0})
         a["total"] += 1
@@ -173,21 +176,35 @@ def poll_chrony():
     try:
         t = chronyc("tracking")[0]
         tracking = {"ref": refid_name(t[0], t[1])[:16], "stratum": int(t[2]), "leap": t[13][:16]}
+        freq_ppm = finite(t[7])
         stats = {r[0]: r for r in chronyc("sourcestats") if len(r) >= 8}
+        rows = [r for r in chronyc("sources")[:32] if len(r) >= 10]
         peers = []
-        for r in chronyc("sources")[:32]:
-            if len(r) < 10:
-                continue
+        for r, label in zip(rows, source_labels(rows)):
             st = stats.get(r[2])
-            peers.append({"mode": r[0][:1], "state": r[1][:1], "name": r[2][:64], "stratum": int(r[3]),
+            peers.append({"mode": r[0][:1], "state": r[1][:1], "addr": r[2][:64], "name": label, "stratum": int(r[3]),
                           "poll": int(r[4]), "reach": r[5][:3],
                           "lastrx": int(r[6]) if r[6].isdigit() else 1 << 31,
                           "offset": finite(r[7]), "err": finite(r[9]),
                           "sd": finite(st[7]) if st else None})
     except (OSError, subprocess.SubprocessError, IndexError, ValueError) as e:
         log(f"chronyc: {e}")
-        return None, []
-    return tracking, peers
+        return None, [], None
+    return tracking, peers, freq_ppm
+
+
+def source_labels(rows):
+    """Configured hostnames for servers set up by name; IP addresses for everything else.
+
+    `chronyc -N` prints names as written in chrony.conf. Pool members all print the pool's
+    name, so a name that repeats (or a mismatched listing) falls back to the IP address.
+    """
+    ips = [r[2][:64] for r in rows]
+    named = [r[2][:64] for r in chronyc("-N", "sources")[:32] if len(r) >= 10]
+    if len(named) != len(ips):
+        return ips
+    return [n if named.count(n) == 1 and n != ip and HOSTNAME_RE.fullmatch(n) else ip
+            for n, ip in zip(named, ips)]
 
 
 def read_temp():
@@ -203,7 +220,7 @@ def display_names(peers):
     names, lan = {}, 0
     for p in peers:
         try:
-            private = ipaddress.ip_address(p["name"]).is_private
+            private = ipaddress.ip_address(p["addr"]).is_private
         except ValueError:
             private = False
         if private:
@@ -264,18 +281,73 @@ def flush():
             (minute, int(locked), gnss["used"], gnss["seen"], gnss["fix"], read_temp()))
 
 
+def allan(src, since):
+    """Overlapping Allan deviation at octave τ from a servo's per-minute mean frequency correction."""
+    rows = db_exec("SELECT ts, freq FROM offsets WHERE src=? AND ts>=? AND freq IS NOT NULL ORDER BY ts",
+                   (src, since))
+    if not rows:
+        return []
+    mean = sum(f for _, f in rows) / len(rows)  # constant offset doesn't change ADEV; removing it keeps precision
+    phases, x, last = [], [0.0], None
+    for ts, f in rows:
+        if last is not None and ts - last != 60:  # gap: start a new contiguous segment
+            phases.append(x)
+            x = [0.0]
+        x.append(x[-1] + (f - mean) * 1e-9 * 60)
+        last = ts
+    phases.append(x)
+    out, m = [], 1
+    while True:
+        total = count = 0
+        for x in phases:
+            if len(x) > 2 * m:
+                total += sum((c - 2 * b + a) ** 2 for a, b, c in zip(x, x[m:], x[2 * m:]))
+                count += len(x) - 2 * m
+        if count < 5 * m:  # fewer than ~5 independent samples at this τ
+            return out
+        tau = m * 60
+        out.append([tau, math.sqrt(total / (2 * tau * tau * count))])
+        m *= 2
+
+
 def prune(cutoff):
     db_exec("DELETE FROM offsets WHERE ts < ?", (cutoff,))
     db_exec("DELETE FROM minutes WHERE ts < ?", (cutoff,))
     db_exec("DELETE FROM peers WHERE ts < ?", (cutoff,))
 
 
+def adev_worker():
+    while True:
+        try:
+            since = int(time.time() - 30 * 86400)
+            adev = {src: allan(src, since) for src in ("phc", "sys")}
+            with lock:
+                live["adev"] = {k: v for k, v in adev.items() if v}
+        except sqlite3.Error as e:
+            log(f"adev: {e}")
+        time.sleep(ADEV_EVERY)
+
+
+def record_phc_refclock(peers, freq_ppm, now):
+    """System clock vs PHC from chrony's PHC refclock, when chrony (not phc2sys) disciplines the clock."""
+    with lock:
+        sys_clk = live["servo"].get("sys")
+        if sys_clk and sys_clk["via"] != "chrony" and now - sys_clk["ts"] < STALE:
+            return  # phc2sys is logging offsets
+    for p in peers:
+        if p["mode"] == "#" and p["addr"].startswith("PHC") and p["offset"] is not None and p["lastrx"] < POLL:
+            record("sys", round(p["offset"] * 1e9), 2 if p["state"] == "*" else 0,
+                   (freq_ppm or 0) * 1000, via="chrony")
+            return
+
+
 def poller():
     last_prune, last_minute = 0, int(time.time()) // 60
     while True:
         try:
-            tracking, peers = poll_chrony()
+            tracking, peers, freq_ppm = poll_chrony()
             now = time.time()
+            record_phc_refclock(peers, freq_ppm, now)
             new = [(int(now - p["lastrx"]), p["name"], p["offset"]) for p in peers
                    if p["mode"] == "^" and p["lastrx"] < POLL and p["reach"] != "0" and p["offset"] is not None]
             if new:
@@ -333,27 +405,32 @@ def window_stats():
     return out
 
 
+def fresh(servo):
+    """Recent enough? chrony refclock samples are only read every POLL seconds."""
+    return servo["age"] < STALE + (POLL if servo["via"] == "chrony" else 0)
+
+
 def api_status():
     now = time.time()
     with lock:
-        servo = {k: {"offset": v["offset"], "state": v["state"], "freq": v["freq"], "age": now - v["ts"]}
-                 for k, v in live["servo"].items()}
+        servo = {k: {"offset": v["offset"], "state": v["state"], "freq": v["freq"], "age": now - v["ts"],
+                     "via": v["via"]} for k, v in live["servo"].items()}
         gnss = gnss_summary()
         sats = [{"g": s["g"], "ss": s["ss"], "u": s["u"]} for s in live["sats"]] if gnss["seen"] or gnss["used"] else []
-        chrony, peers = live["chrony"], live["peers"]
+        chrony, peers, adev = live["chrony"], live["peers"], live["adev"]
         gnss_age = now - live["gnss"].get("ts", 0)
     names = display_names(peers)
-    peers = [{**{k: v for k, v in p.items() if k != "lastrx"}, "name": names[p["name"]]} for p in peers]
+    peers = [{**{k: v for k, v in p.items() if k not in ("lastrx", "addr")}, "name": names[p["name"]]} for p in peers]
     phc = servo.get("phc")
     sys_clk = servo.get("sys")
-    # The system clock (what NTP serves) must track the PHC too, when phc2sys logs offsets.
-    phc_ok = (phc and phc["age"] < STALE and phc["state"] == 2
-              and (not sys_clk or (sys_clk["age"] < STALE and sys_clk["state"] == 2)))
+    # The system clock (what NTP serves) must track the PHC too, when its offsets are known.
+    phc_ok = (phc and fresh(phc) and phc["state"] == 2
+              and (not sys_clk or (fresh(sys_clk) and sys_clk["state"] == 2)))
     # Health from each data source's freshness, not systemd state (a running daemon can still be stuck).
     sources = [{"name": "gpsd", "ok": gnss_age < STALE}, {"name": "chrony", "ok": chrony is not None},
-               {"name": "ts2phc", "ok": bool(phc and phc["age"] < STALE)}]
-    if "sys" in servo:  # only known when phc2sys logs offsets
-        sources.append({"name": "phc2sys", "ok": servo["sys"]["age"] < STALE})
+               {"name": "ts2phc", "ok": bool(phc and fresh(phc))}]
+    if sys_clk:  # from phc2sys logs or chrony's PHC refclock
+        sources.append({"name": "chrony PHC" if sys_clk["via"] == "chrony" else "phc2sys", "ok": fresh(sys_clk)})
     if not chrony:
         status = ("bad", "NTP service down")
     elif phc_ok and gnss["fix"] >= 2:
@@ -364,7 +441,7 @@ def api_status():
         status = ("warn", "Holdover")
     return {"status": status[0], "status_text": status[1], "servo": servo, "gnss": gnss, "sats": sats,
             "chrony": chrony, "peers": peers, "sources": sources, "temp": read_temp(),
-            "stats": cached("stats", window_stats), "now": time.time()}
+            "stats": cached("stats", window_stats), "adev": adev, "now": time.time()}
 
 
 def api_history(span):
@@ -478,7 +555,7 @@ def main():
     state["db"] = sqlite3.connect(DB_PATH, check_same_thread=False)
     state["db"].execute("PRAGMA journal_mode=WAL")
     state["db"].executescript(SCHEMA)
-    for fn in (gpsd_reader, journal_reader, poller):
+    for fn in (gpsd_reader, journal_reader, poller, adev_worker):
         threading.Thread(target=fn, daemon=True).start()
     server = Server((BIND, PORT), Handler)
     log(f"time-status on {BIND or '*'}:{PORT}, db {DB_PATH}")

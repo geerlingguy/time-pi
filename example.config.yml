@@ -15,8 +15,11 @@ chrony_refclock: |
   # Uncomment to ignore chrony sync, trust local clock as stratum 1
   local stratum 1
 
-  # Uncomment to use NIC's PHC as time source.
-  #refclock PHC /dev/ptp0 poll 0 dpoll -5 tai  # Use NIC's PHC
+  # Uncomment to have chrony discipline the system clock from the NIC's PHC
+  # (set chrony_discipline_clock: true, stop phc2sys, and remove 'local' above).
+  # The PHC keeps TAI, so chrony needs the leap second list (chrony 4.5+).
+  #refclock PHC /dev/ptp0 refid PHC poll 0 dpoll -2 tai prefer
+  #leapseclist /usr/share/zoneinfo/leap-seconds.list
 
   # Uncomment to use GPS module directly as time source.
   #refclock SHM 0 refid NMEA precision 1e-3 poll 0 filter 3
@@ -26,6 +29,9 @@ chrony_refclock: |
 
   # Uncomment to log timing statistics.
   #log tracking measurements statistics
+
+# Let chrony discipline the system clock (PHC refclock above) instead of phc2sys.
+chrony_discipline_clock: false
 
 # Hosts allowed to query chrony for NTP time.
 # See: https://chrony-project.org/doc/3.4/chrony.conf.html#allow

@@ -9,11 +9,13 @@ Python 3 stdlib only (no pip packages, no JS libraries). History is kept in SQLi
 | What | Where it comes from |
 | --- | --- |
 | PHC vs GPS PPS offset, servo state, frequency | `ts2phc` log lines in the journal (needs `ts2phc_logging_level: 6`, the default) |
-| System clock vs PHC offset | `phc2sys` log lines (optional, needs `phc2sys_logging_level: 6`) |
+| System clock vs PHC offset | `phc2sys` log lines (needs `phc2sys_logging_level: 6`), or chrony's PHC refclock (`chronyc sources`, every 15 s) when `chrony_discipline_clock: true` |
 | Fix, satellites, C/N₀, DOP, GPS−UTC | `gpsd` JSON on `localhost:2947` |
-| Stratum, reference, other NTP servers | `chronyc -h 127.0.0.1` `tracking`, `sources`, `sourcestats` (unprivileged UDP monitoring port) |
+| Stratum, reference, other NTP servers | `chronyc -h 127.0.0.1` `tracking`, `sources`, `sourcestats` (unprivileged UDP monitoring port); servers configured by hostname show that name (`chronyc -N`), pool members show their IP |
 
 The footer dots show whether each data source (gpsd, chrony, ts2phc, and phc2sys if it logs offsets) has reported in the last 10 seconds.
+
+The Allan deviation chart is computed every 10 minutes from the per-minute mean frequency correction of ts2phc (the NIC oscillator vs GPS) and phc2sys or chrony (the Pi's oscillator vs the PHC) over the last 30 days. Short τ includes GPS PPS noise and servo action, so the chart also draws an estimated PPS noise floor (√3·σ/τ, from the 24h PHC σ).
 
 "Locked" means ts2phc reported servo state `s2` for at least half of the samples in a minute. Offset statistics only include locked samples. The NTP servers in `chrony.conf` (`pool ... noselect` by default) are used for comparison only; their offsets include network path asymmetry, so a few hundred µs is normal.
 

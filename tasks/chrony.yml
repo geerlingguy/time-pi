@@ -1,4 +1,9 @@
 ---
+- name: Ensure only one program disciplines the system clock.
+  ansible.builtin.assert:
+    that: not (chrony_discipline_clock | default(false) and phc2sys_service_state == 'started')
+    fail_msg: "chrony_discipline_clock is true: set phc2sys_service_state: stopped and phc2sys_service_enabled: false."
+
 - name: Install chrony.
   ansible.builtin.apt:
     name: chrony
@@ -15,10 +20,11 @@
   loop:
     - regexp: '^pool\s+'
       line: "pool 2.debian.pool.ntp.org iburst noselect"
+    # When phc2sys owns the system clock, keep chrony from adjusting it; otherwise use chrony's defaults.
     - regexp: '^maxupdateskew.+'
-      line: "maxupdateskew 0"
+      line: "maxupdateskew {{ '1000' if chrony_discipline_clock | default(false) else '0' }}"
     - regexp: '^makestep.+'
-      line: "makestep 0 0"
+      line: "makestep {{ '1 3' if chrony_discipline_clock | default(false) else '0 0' }}"
 
 - name: Disable DHCP-provided NTP sources (they fight phc2sys for the system clock).
   ansible.builtin.replace:
