@@ -120,11 +120,18 @@ To set it with the playbook, put the value in `config.yml` and run the playbook:
 gnss_cable_delay_ns: 82
 ```
 
-To check or set it by hand (use the `PROTVER` from `ubxtool -p MON-VER`):
+Then check the value the receiver is using (use the `PROTVER` from `ubxtool -p MON-VER`):
 
 ```
-ubxtool -P 29.20 -g CFG-TP-ANT_CABLEDELAY,0     # current value (ns)
-ubxtool -P 29.20 -z CFG-TP-ANT_CABLEDELAY,82    # set it (saved to RAM and flash)
+$ ubxtool -P 29.20 -g CFG-TP-ANT_CABLEDELAY,0
+...
+    item CFG-TP-ANT_CABLEDELAY/0x30050001 val 82
+```
+
+To set it by hand instead:
+
+```
+ubxtool -P 29.20 -z CFG-TP-ANT_CABLEDELAY,82    # saved to RAM and flash
 ```
 
 Changing it shifts the PPS by the difference from the old value; ts2phc pulls the PHC over within a few seconds. For receivers without this setting, ts2phc's `ts2phc.extts_correction` can compensate instead (see `man ts2phc`).
