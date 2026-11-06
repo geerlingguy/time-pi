@@ -98,6 +98,44 @@ sudo systemctl restart gpsd
 
 For more on how to set the baud rate (or tweak other GPS module parameters), see [millerjs.org's ubxtool page](https://wiki.millerjs.org/ubxtool) and the [ubxtool examples](https://gpsd.io/ubxtool-examples.html) page. You can also configure most options via `pygpsclient` using a GUI.
 
+### Antenna cable delay
+
+The GNSS signal takes time to travel down the antenna cable, so the receiver's PPS arrives late by that much. u-blox timing receivers compensate with `CFG-TP-ANT_CABLEDELAY` (in ns), and because the receiver applies it, the PHC, PTP and NTP all benefit. The ZED-F9T defaults to **50 ns**, not 0.
+
+Delay is cable length × 3.336 ÷ velocity factor (ns/m):
+
+| Cable | Velocity factor | ns/m | ns/ft |
+| --- | --- | --- | --- |
+| RG-174, RG-58 (solid dielectric) | 0.66 | 5.05 | 1.54 |
+| LMR-195 | 0.80 | 4.17 | 1.27 |
+| Belden H155 | 0.81 | 4.12 | 1.26 |
+| LMR-240 | 0.84 | 3.97 | 1.21 |
+| LMR-400 | 0.85 | 3.92 | 1.19 |
+
+For example, 20 m of H155 is about 82 ns. Antenna, adapters and splitters add a few ns more (check their datasheets). For better than a few ns, measure the cable with a TDR; a NanoVNA can do it. See [#18](https://github.com/geerlingguy/time-pi/issues/18) for more discussion.
+
+To set it with the playbook, put the value in `config.yml` and run the playbook:
+
+```yaml
+gnss_cable_delay_ns: 82
+```
+
+Then check the value the receiver is using (use the `PROTVER` from `ubxtool -p MON-VER`):
+
+```
+$ ubxtool -P 29.20 -g CFG-TP-ANT_CABLEDELAY,0
+...
+    item CFG-TP-ANT_CABLEDELAY/0x30050001 val 82
+```
+
+To set it by hand instead:
+
+```
+ubxtool -P 29.20 -z CFG-TP-ANT_CABLEDELAY,82    # saved to RAM and flash
+```
+
+Changing it shifts the PPS by the difference from the old value; ts2phc pulls the PHC over within a few seconds. For receivers without this setting, ts2phc's `ts2phc.extts_correction` can compensate instead (see `man ts2phc`).
+
 See this issue for more: [Debug NEO-M9N module on TimeHAT V2](https://github.com/geerlingguy/time-pi/issues/11).
 
 ## Debugging

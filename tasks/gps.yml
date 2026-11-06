@@ -40,3 +40,30 @@
     name: gpspipe-socat
     state: "{{ gpspipe_socat_state }}"
     enabled: "{{ gpspip_socat_enabled }}"
+
+- name: Set u-blox antenna cable delay.
+  when: gnss_cable_delay_ns | default('') | string | length > 0
+  block:
+    - name: Get u-blox protocol version.
+      ansible.builtin.command: ubxtool -p MON-VER
+      register: ubx_monver
+      changed_when: false
+      retries: 5
+      delay: 3
+      until: "'PROTVER=' in ubx_monver.stdout"
+
+    - name: Save u-blox protocol version.
+      ansible.builtin.set_fact:
+        ubx_protver: "{{ ubx_monver.stdout | regex_search('PROTVER=([0-9.]+)', '\\1') | first }}"
+
+    - name: Get current antenna cable delay (RAM layer).
+      ansible.builtin.command: "ubxtool -P {{ ubx_protver }} -g CFG-TP-ANT_CABLEDELAY,0"
+      register: ubx_cable_delay
+      changed_when: false
+
+    - name: Set antenna cable delay (saved to RAM and flash).
+      ansible.builtin.command: "ubxtool -P {{ ubx_protver }} -z CFG-TP-ANT_CABLEDELAY,{{ gnss_cable_delay_ns }}"
+      when: >-
+        ubx_cable_delay.stdout | regex_search('ANT_CABLEDELAY\\S* val (-?[0-9]+)', '\\1') | first | int
+        != gnss_cable_delay_ns | int
+      changed_when: true
