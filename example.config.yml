@@ -6,6 +6,9 @@ gpsd_devices: "/dev/ttyAMA0"
 gpsd_baud: "115200"
 gpsd_options: "-s {{ gpsd_baud }} -n"
 
+# u-blox antenna cable delay in ns (empty leaves the receiver as-is). See README.
+gnss_cable_delay_ns: ''
+
 gpspipe_socat_state: started
 gpspip_socat_enabled: true
 
