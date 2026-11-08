@@ -2,3 +2,6 @@
 skip_list:
   - 'no-handler'
   - 'no-changed-when'
+mock_roles:
+  - geerlingguy.security
+  - geerlingguy.firewall

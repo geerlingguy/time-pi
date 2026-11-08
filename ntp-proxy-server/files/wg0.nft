@@ -1,0 +1,17 @@
+# Only NTP is allowed in from the NTP proxy server over the tunnel.
+table inet wg0_ntp
+delete table inet wg0_ntp
+
+table inet wg0_ntp {
+  chain input {
+    type filter hook input priority filter; policy accept;
+    iifname "wg0" udp dport 123 accept
+    iifname "wg0" ct state established,related accept
+    iifname "wg0" drop
+  }
+
+  chain forward {
+    type filter hook forward priority filter; policy accept;
+    iifname "wg0" drop
+  }
+}

@@ -1,0 +1,143 @@
+---
+- name: Generate WireGuard keys.
+  hosts: ntp_proxy:time_pi
+  become: true
+
+  tasks:
+    - name: Install WireGuard tools.
+      ansible.builtin.apt:
+        name: wireguard-tools
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Ensure WireGuard config directory is private.
+      ansible.builtin.file:
+        path: /etc/wireguard
+        state: directory
+        mode: 0700
+
+    # Each private key is generated on its own host and never leaves it.
+    - name: Generate WireGuard private key.
+      ansible.builtin.shell: umask 077 && wg genkey > /etc/wireguard/privatekey
+      args:
+        creates: /etc/wireguard/privatekey
+
+    - name: Read WireGuard public key.
+      ansible.builtin.shell: wg pubkey < /etc/wireguard/privatekey
+      register: wg_pubkey
+      changed_when: false
+
+- name: Configure NTP proxy server.
+  hosts: ntp_proxy
+  become: true
+
+  vars:
+    security_autoupdate_reboot: "true"
+    firewall_disable_ufw: true
+    firewall_allowed_tcp_ports: ["22"]
+    firewall_allowed_udp_ports: ["123", "{{ wg_port }}"]
+    # Don't track NTP clients in conntrack, so heavy pool traffic can't fill the table.
+    firewall_additional_rules:
+      - iptables -t raw -F
+      - iptables -t raw -A PREROUTING -p udp --dport 123 -j CT --notrack
+      - iptables -t raw -A OUTPUT -p udp --sport 123 -j CT --notrack
+    firewall_ip6_additional_rules:
+      - ip6tables -t raw -F
+      - ip6tables -t raw -A PREROUTING -p udp --dport 123 -j CT --notrack
+      - ip6tables -t raw -A OUTPUT -p udp --sport 123 -j CT --notrack
+
+  roles:
+    - geerlingguy.security
+    - geerlingguy.firewall
+
+  handlers:
+    - name: Restart WireGuard
+      ansible.builtin.service:
+        name: wg-quick@wg0
+        state: restarted
+
+    - name: Restart chrony
+      ansible.builtin.service:
+        name: chrony
+        state: restarted
+
+  tasks:
+    - name: Configure WireGuard.
+      ansible.builtin.template:
+        src: templates/wg0-proxy.conf.j2
+        dest: /etc/wireguard/wg0.conf
+        mode: 0600
+      notify: Restart WireGuard
+
+    - name: Ensure WireGuard is running.
+      ansible.builtin.service:
+        name: wg-quick@wg0
+        state: started
+        enabled: true
+
+    - name: Install chrony.
+      ansible.builtin.apt:
+        name: chrony
+        state: present
+
+    - name: Configure chrony.
+      ansible.builtin.template:
+        src: templates/chrony.conf.j2
+        dest: /etc/chrony/chrony.conf
+        mode: 0644
+      notify: Restart chrony
+
+    - name: Ensure chrony is running.
+      ansible.builtin.service:
+        name: chrony
+        state: started
+        enabled: true
+
+- name: Connect Time Pi to NTP proxy server.
+  hosts: time_pi
+  become: true
+
+  handlers:
+    - name: Restart WireGuard
+      ansible.builtin.service:
+        name: wg-quick@wg0
+        state: restarted
+
+    - name: Restart chrony
+      ansible.builtin.service:
+        name: chrony
+        state: restarted
+
+  tasks:
+    - name: Install nftables.
+      ansible.builtin.apt:
+        name: nftables
+        state: present
+
+    - name: Copy WireGuard tunnel firewall rules.
+      ansible.builtin.copy:
+        src: files/wg0.nft
+        dest: /etc/wireguard/wg0.nft
+        mode: 0600
+      notify: Restart WireGuard
+
+    - name: Configure WireGuard.
+      ansible.builtin.template:
+        src: templates/wg0-pi.conf.j2
+        dest: /etc/wireguard/wg0.conf
+        mode: 0600
+      notify: Restart WireGuard
+
+    - name: Ensure WireGuard is running.
+      ansible.builtin.service:
+        name: wg-quick@wg0
+        state: started
+        enabled: true
+
+    - name: Allow NTP proxy server to query chrony.
+      ansible.builtin.copy:
+        content: "allow {{ wg_proxy_address }}\n"
+        dest: /etc/chrony/conf.d/ntp-proxy.conf
+        mode: 0644
+      notify: Restart chrony

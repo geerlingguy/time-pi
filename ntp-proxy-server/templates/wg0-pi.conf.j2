@@ -1,0 +1,14 @@
+# {{ ansible_managed }}
+
+[Interface]
+Address = {{ wg_pi_address }}/32
+PostUp = wg set %i private-key /etc/wireguard/privatekey
+PostUp = nft -f /etc/wireguard/wg0.nft
+PostDown = nft delete table inet wg0_ntp
+
+# NTP proxy server.
+[Peer]
+PublicKey = {{ hostvars[groups['ntp_proxy'][0]].wg_pubkey.stdout }}
+Endpoint = {{ hostvars[groups['ntp_proxy'][0]].ansible_host | default(groups['ntp_proxy'][0]) }}:{{ wg_port }}
+AllowedIPs = {{ wg_proxy_address }}/32
+PersistentKeepalive = 25
