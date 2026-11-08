@@ -93,7 +93,7 @@ time_status_enabled: false
 time_status_port: 80
 time_status_title: "{{ inventory_hostname }}"
 time_status_subtitle: "Stratum 1 NTP server, disciplined by GNSS"
-# Optional HTML block at the top of the page, e.g. how to use a public NTP server.
+# Optional HTML block below the stats, e.g. how to use a public NTP server.
 time_status_info: ''
 # time_status_info: |
 #   <h2>Use this time server</h2>

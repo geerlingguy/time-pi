@@ -504,7 +504,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):  # pylint: disable=invalid-name
         url = urlsplit(self.path)
         try:
-            if url.path == "/" and not url.query:
+            if url.path == "/":  # Ignore query strings like ?utm_source on shared links.
                 self.send(200, state["page"], "text/html; charset=utf-8", "max-age=300")
             elif url.path == "/api/status" and not url.query:
                 self.send(200, to_json(api_status()), "application/json", "no-store")
