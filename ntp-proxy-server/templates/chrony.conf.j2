@@ -2,11 +2,10 @@
 
 # Time Pi over WireGuard; the public servers are a sanity check and backup.
 server {{ wg_pi_address }} iburst minpoll 0 maxpoll 4 xleave prefer
-server time.cloudflare.com iburst nts
+server time.cloudflare.com iburst
 server time-a-g.nist.gov iburst
 
 driftfile /var/lib/chrony/chrony.drift
-ntsdumpdir /var/lib/chrony
 makestep 1 3
 rtcsync
 
