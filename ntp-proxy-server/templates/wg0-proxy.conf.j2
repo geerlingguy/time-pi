@@ -1,0 +1,11 @@
+# {{ ansible_managed }}
+
+[Interface]
+Address = {{ wg_proxy_address }}/32
+ListenPort = {{ wg_port }}
+PostUp = wg set %i private-key /etc/wireguard/privatekey
+
+# Time Pi (it connects out to this server, so no Endpoint).
+[Peer]
+PublicKey = {{ hostvars[groups['time_pi'][0]].wg_pubkey.stdout }}
+AllowedIPs = {{ wg_pi_address }}/32

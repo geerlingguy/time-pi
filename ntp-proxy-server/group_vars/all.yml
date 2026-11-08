@@ -1,0 +1,4 @@
+---
+wg_port: 51820
+wg_pi_address: 10.99.0.1
+wg_proxy_address: 10.99.0.2
