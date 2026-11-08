@@ -1,12 +1,9 @@
 #!/usr/bin/env python3
-"""Show NTP requests per second from chrony's serverstats log as a terminal bar chart.
-
-Usage: ntp-stats [HOURS] [BUCKET_MINUTES]   (default: last 24 hours, 60-minute buckets)
-"""
+"""Show NTP requests per second from chrony's serverstats log as a terminal bar chart."""
+import argparse
 import glob
 import gzip
 import os
-import sys
 from datetime import datetime, timedelta, timezone
 
 LOG = "/var/log/chrony/serverstats.log"
@@ -32,7 +29,8 @@ def samples(since):
             rx, drop = int(fields[1]), int(fields[2])
         except (ValueError, IndexError):
             continue
-        if prev_ts and ts >= since:
+        # Skip deltas spanning a gap in the log (e.g. the VPS was down), so they don't smear across buckets.
+        if prev_ts and ts >= since and (ts - prev_ts).total_seconds() <= 300:
             yield (ts, (ts - prev_ts).total_seconds(),
                    rx - prev_rx if rx >= prev_rx else rx,
                    drop - prev_drop if drop >= prev_drop else drop)
@@ -44,24 +42,38 @@ def draw_bar(value, peak):
     return "█" * (eighths // 8) + EIGHTHS[eighths % 8].strip()
 
 
+def parse_args():
+    """Return (hours, bucket seconds) from the command line."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("hours", nargs="?", type=float, default=24, help="how far back to show (default: 24)")
+    parser.add_argument("minutes", nargs="?", type=int, default=60, help="minutes per bar (default: 60)")
+    args = parser.parse_args()
+    if args.hours <= 0 or args.minutes < 1:
+        parser.error("hours must be > 0 and minutes >= 1")
+    return args.hours, args.minutes * 60
+
+
 def main():
-    hours = int(sys.argv[1]) if len(sys.argv) > 1 else 24
-    bucket = int(sys.argv[2]) * 60 if len(sys.argv) > 2 else 3600
-    since = datetime.now(timezone.utc) - timedelta(hours=hours)
+    hours, bucket = parse_args()
+    now = datetime.now(timezone.utc)
+    first = int((now - timedelta(hours=hours)).timestamp() // bucket * bucket)
+    since = datetime.fromtimestamp(first, timezone.utc)
     buckets = {}
     for ts, seconds, rx, drop in samples(since):
-        start = datetime.fromtimestamp(ts.timestamp() // bucket * bucket, timezone.utc)
-        total = buckets.setdefault(start, [0, 0, 0])
+        total = buckets.setdefault(int(ts.timestamp() // bucket * bucket), [0, 0, 0])
         total[0] += seconds
         total[1] += rx
         total[2] += drop
-    if not buckets:
-        sys.exit(f"No data in {LOG} for the last {hours} hours.")
     rates = {start: rx / seconds for start, (seconds, rx, _) in buckets.items() if seconds}
     peak = max(rates.values(), default=0)
     print(f"{'UTC':16}  {'req/s':>8}  {'dropped':>7}")
-    for start in sorted(rates):
-        print(f"{start:%Y-%m-%d %H:%M}  {rates[start]:8.2f}  {buckets[start][2]:7}  {draw_bar(rates[start], peak)}")
+    # Stop a minute short of now, since the current minute isn't logged yet.
+    for start in range(first, int(now.timestamp()) - 60, bucket):
+        label = f"{datetime.fromtimestamp(start, timezone.utc):%Y-%m-%d %H:%M}"
+        if start in rates:
+            print(f"{label}  {rates[start]:8.2f}  {buckets[start][2]:7}  {draw_bar(rates[start], peak)}")
+        else:
+            print(f"{label}  {'-':>8}  {'-':>7}  no data")
     print(f"\nTotal: {sum(b[1] for b in buckets.values())} requests, "
           f"{sum(b[2] for b in buckets.values())} dropped by rate limiting.")
 

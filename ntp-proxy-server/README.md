@@ -58,6 +58,7 @@ To chart NTP requests per second in the terminal, run `ntp-stats` on the VPS:
 ntp-stats            # last 24 hours, hourly
 ntp-stats 168        # last 7 days, hourly
 ntp-stats 2 10       # last 2 hours, 10-minute buckets
+ntp-stats 0.25 1     # last 15 minutes, per minute
 ```
 
 The NTP Pool's monitors also publish offsets and scores for the server at `https://www.ntppool.org/scores/<vps-ip>`.
