@@ -11,7 +11,7 @@
 :root {
   --bg: #ffffff; --ink: #232333; --head: #232333; --muted: #737373; --line: #e6e6e6; --zero: #c3c2b7; --dots: #663399;
   --link: rgba(80, 250, 123, 0.9);
-  --ok: #0ca30c; --ok-ink: #006300; --warn: #fab219; --bad: #d03b3b; --none: #d9d9d9;
+  --ok: #0ca30c; --ok-ink: #006300; --info-bg: #edf9f0; --info-edge: #0ca30c; --warn: #fab219; --bad: #d03b3b; --none: #d9d9d9;
   --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4; --s6: #008300; --s7: #6250d6; --s8: #e34948;
   --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
 }
@@ -19,7 +19,7 @@
   :root {
     --bg: #202124; --ink: #ffffff; --head: #dddddd; --muted: #b0b0b0; --line: #3a3a3a; --zero: #5a5a5a; --dots: #0066ff;
     --link: rgba(80, 250, 123, 0.45);
-    --ok-ink: #50fa7b; --none: #3a3a3a;
+    --ok-ink: #50fa7b; --none: #3a3a3a; --info-bg: #26332b; --info-edge: #50fa7b;
     --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767;
   }
 }
@@ -45,7 +45,7 @@ header .sub { margin: .1rem 0 0; }
 .warn .dot, .dot.warn { background: var(--warn); }
 .bad .dot, .dot.bad { background: var(--bad); }
 
-.info { margin: 1.5rem 0 0; padding: .6rem .9rem; border: 1px solid var(--line); border-radius: 5px; overflow-wrap: anywhere; }
+.info { margin: 1.5rem 0 0; padding: .7rem 1rem; background: var(--info-bg); border-left: 4px solid var(--info-edge); border-radius: 5px; overflow-wrap: anywhere; }
 .info h2 { margin: 0 0 .3rem; font-size: 1.2rem; }
 .info p, .info ul { margin: .3rem 0; }
 .info ul { padding-left: 1.2rem; }
