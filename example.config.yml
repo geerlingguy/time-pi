@@ -37,6 +37,9 @@ chrony_refclock: |
 # Let chrony discipline the system clock (PHC refclock above) instead of phc2sys.
 chrony_discipline_clock: false
 
+# NTP pool servers to compare against (set to '' to remove the pool line).
+chrony_pool: "2.debian.pool.ntp.org iburst noselect"
+
 # Hosts allowed to query chrony for NTP time.
 # See: https://chrony-project.org/doc/3.4/chrony.conf.html#allow
 chrony_allow: "10.0.2.0/24"
