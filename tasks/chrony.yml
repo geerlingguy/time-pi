@@ -18,13 +18,21 @@
     insertafter: EOF
   notify: Restart chrony
   loop:
-    - regexp: '^pool\s+'
-      line: "pool 2.debian.pool.ntp.org iburst noselect"
     # When phc2sys owns the system clock, keep chrony from adjusting it; otherwise use chrony's defaults.
     - regexp: '^maxupdateskew.+'
       line: "maxupdateskew {{ '1000' if chrony_discipline_clock | default(false) else '0' }}"
     - regexp: '^makestep.+'
       line: "makestep {{ '1 3' if chrony_discipline_clock | default(false) else '0 0' }}"
+
+- name: Configure chrony pool sources.
+  ansible.builtin.lineinfile:
+    path: /etc/chrony/chrony.conf
+    regexp: '^pool\s+'
+    line: "pool {{ pool }}"
+    state: "{{ 'present' if pool else 'absent' }}"
+  vars:
+    pool: "{{ chrony_pool | default('2.debian.pool.ntp.org iburst noselect') }}"
+  notify: Restart chrony
 
 - name: Disable DHCP-provided NTP sources (they fight phc2sys for the system clock).
   ansible.builtin.replace:
