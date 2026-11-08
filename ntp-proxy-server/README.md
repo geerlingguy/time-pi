@@ -19,17 +19,7 @@ The Time Pi should already be set up with the main playbook.
    ping -c 20 <vps-ip>        # from the Time Pi
    ```
 
-2. Add a user with `sudo` access on the VPS:
-
-   ```
-   ssh root@<vps-ip>
-   adduser jeff
-   usermod -aG sudo jeff
-   exit
-   ssh-copy-id jeff@<vps-ip>
-   ```
-
-   Make sure `ssh jeff@<vps-ip>` works with your key before continuing, because the playbook disables root and password logins.
+2. Add a user account with `sudo` access on the VPS, and ensure an SSH key is configured.
 
 3. Point a DNS-only (not proxied) `A` record, and an `AAAA` record if the VPS has IPv6, at the VPS.
 
