@@ -45,6 +45,12 @@ header .sub { margin: .1rem 0 0; }
 .warn .dot, .dot.warn { background: var(--warn); }
 .bad .dot, .dot.bad { background: var(--bad); }
 
+.info { margin: 1.25rem 0 0; padding: .6rem .9rem; border: 1px solid var(--line); border-radius: 5px; overflow-wrap: anywhere; }
+.info h2 { margin: 0 0 .3rem; font-size: 1.2rem; }
+.info p, .info ul { margin: .3rem 0; }
+.info ul { padding-left: 1.2rem; }
+code { font-family: var(--mono); font-size: .9em; }
+
 .clock { margin: 1.25rem 0 1rem; }
 #utc { font-family: var(--mono); font-size: clamp(2.2rem, 9vw, 3.2rem); line-height: 1.1; letter-spacing: -.02em; }
 #utc small { font-size: .45em; color: var(--muted); letter-spacing: 0; }
@@ -114,6 +120,8 @@ footer { margin-top: 2.5rem; padding: 1.25rem 0 2rem; border-top: .4rem dotted v
     </div>
     <div id="status" class="pill"><span class="dot"></span><span id="status-text">Connecting…</span></div>
   </header>
+
+  __INFO__
 
   <section class="clock">
     <div id="utc">--:--:-- <small>UTC</small></div>

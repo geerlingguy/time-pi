@@ -15,6 +15,13 @@
     - time_status.py
     - index.html
 
+- name: Copy time status info block into place.
+  ansible.builtin.copy:
+    content: "{{ time_status_info | default('') }}"
+    dest: /opt/time-status/info.html
+    mode: 0644
+  notify: Restart time-status
+
 - name: Copy time-status systemd unit file into place.
   ansible.builtin.template:
     src: time-status.unit.j2

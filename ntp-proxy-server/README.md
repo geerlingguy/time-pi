@@ -32,12 +32,18 @@ The Time Pi should already be set up with the main playbook.
    ansible-playbook main.yml -K
    ```
 
-6. Verify it's working:
+6. Verify it's working on the VPS:
 
    ```
-   sudo wg show               # on the VPS: should show a recent handshake
-   chronyc sources            # on the VPS: should show ^* on 10.99.0.1
-   sntp ntp-01.example.com    # from anywhere (macOS)
+   sudo wg show               # should show a recent handshake
+   chronyc sources            # should show ^* on 10.99.0.1
+   ```
+
+7. Test it from another computer (prints the offset without changing the clock):
+
+   ```
+   sntp ntp-01.jeffgeerling.com                                     # macOS
+   sudo chronyd -Q -t 10 'server ntp-01.jeffgeerling.com iburst'    # Linux with chrony
    ```
 
 After it's been stable for a few days, [add it to the NTP Pool](https://www.ntppool.org/manage) at the lowest netspeed and raise it gradually.

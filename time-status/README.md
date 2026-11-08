@@ -48,6 +48,8 @@ Environment variables (set in the systemd unit):
   - `DASH_RETENTION`: days of history to keep (default `90`)
   - `DASH_DB`: SQLite path (default `/var/lib/time-status/time-status.db`)
 
+To show a block of text at the top of the page (e.g. NTP client instructions), put an HTML snippet in `info.html` next to `time_status.py` (the `time_status_info` playbook variable), and restart the service. Scripts and styles in it are blocked by the page's CSP.
+
 ## Security
 
 The page is meant to face the internet, so it exposes as little as possible:

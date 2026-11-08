@@ -547,11 +547,19 @@ def csp_hash(page, tag):
 
 
 def main():
-    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "index.html"), encoding="utf-8") as f:
+    here = os.path.dirname(os.path.abspath(__file__))
+    with open(os.path.join(here, "index.html"), encoding="utf-8") as f:
         page = f.read().replace("__TITLE__", html.escape(TITLE)).replace("__SUBTITLE__", html.escape(SUBTITLE))
-    state["page"] = page.encode()
+    # Hash before adding info.html, so the CSP never allows scripts or styles from it.
     state["csp"] = (f"default-src 'none'; script-src {csp_hash(page, 'script')}; style-src {csp_hash(page, 'style')}; "
                     "connect-src 'self'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+    try:
+        with open(os.path.join(here, "info.html"), encoding="utf-8") as f:
+            info = f.read().strip()
+    except FileNotFoundError:
+        info = ""
+    page = page.replace("__INFO__", f'<section class="info">\n{info}\n</section>' if info else "")
+    state["page"] = page.encode()
     state["db"] = sqlite3.connect(DB_PATH, check_same_thread=False)
     state["db"].execute("PRAGMA journal_mode=WAL")
     state["db"].executescript(SCHEMA)
