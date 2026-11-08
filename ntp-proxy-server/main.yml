@@ -76,9 +76,11 @@
         state: started
         enabled: true
 
-    - name: Install chrony.
+    - name: Install chrony and cron.
       ansible.builtin.apt:
-        name: chrony
+        name:
+          - chrony
+          - cron
         state: present
 
     - name: Configure chrony.
@@ -96,11 +98,11 @@
 
     # chrony's logrotate config covers /var/log/chrony/*.log.
     - name: Log chrony server stats every minute.
-      ansible.builtin.copy:
-        content: |
-          * * * * * root echo "$(date -u +\%FT\%TZ),$(chronyc -c serverstats)" >> /var/log/chrony/serverstats.log
-        dest: /etc/cron.d/chrony-serverstats
-        mode: 0644
+      ansible.builtin.cron:
+        name: chrony serverstats
+        cron_file: chrony-serverstats
+        user: root
+        job: 'echo "$(date -u +\%FT\%TZ),$(chronyc -c serverstats)" >> /var/log/chrony/serverstats.log'
 
     - name: Install ntp-stats script.
       ansible.builtin.copy:
