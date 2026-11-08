@@ -94,6 +94,20 @@
         state: started
         enabled: true
 
+    # chrony's logrotate config covers /var/log/chrony/*.log.
+    - name: Log chrony server stats every minute.
+      ansible.builtin.copy:
+        content: |
+          * * * * * root echo "$(date -u +\%FT\%TZ),$(chronyc -c serverstats)" >> /var/log/chrony/serverstats.log
+        dest: /etc/cron.d/chrony-serverstats
+        mode: 0644
+
+    - name: Install ntp-stats script.
+      ansible.builtin.copy:
+        src: files/ntp_stats.py
+        dest: /usr/local/bin/ntp-stats
+        mode: 0755
+
 - name: Connect Time Pi to NTP proxy server.
   hosts: time_pi
   become: true
