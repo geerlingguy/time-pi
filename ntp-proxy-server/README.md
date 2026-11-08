@@ -47,3 +47,17 @@ The Time Pi should already be set up with the main playbook.
    ```
 
 After it's been stable for a few days, [add it to the NTP Pool](https://www.ntppool.org/manage) at the lowest netspeed and raise it gradually.
+
+## Monitoring
+
+The playbook logs chrony's server counters every minute to `/var/log/chrony/serverstats.log`, rotated along with chrony's other logs. Each line is a UTC timestamp followed by the fields from `chronyc -c serverstats` (NTP requests received, dropped by rate limiting, etc.). The counters reset when chrony restarts.
+
+To chart NTP requests per second in the terminal, run `ntp-stats` on the VPS:
+
+```
+ntp-stats            # last 24 hours, hourly
+ntp-stats 168        # last 7 days, hourly
+ntp-stats 2 10       # last 2 hours, 10-minute buckets
+```
+
+The NTP Pool's monitors also publish offsets and scores for the server at `https://www.ntppool.org/scores/<vps-ip>`.

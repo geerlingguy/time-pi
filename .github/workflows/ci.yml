@@ -45,10 +45,11 @@ jobs:
       - name: Install test dependencies.
         run: pip3 install pylint bandit
 
-      - name: Lint and security scan time-status.
+      - name: Lint and security scan Python scripts.
         run: |
-          pylint --max-line-length=120 --disable=missing-function-docstring,missing-class-docstring time-status/
-          bandit -ll -r time-status/
+          pylint --max-line-length=120 --disable=missing-function-docstring,missing-class-docstring \
+            time-status/ ntp-proxy-server/files/
+          bandit -ll -r time-status/ ntp-proxy-server/files/
 
       - name: Smoke test time-status (no data sources available).
         run: |
