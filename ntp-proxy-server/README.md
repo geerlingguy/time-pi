@@ -52,13 +52,13 @@ After it's been stable for a few days, [add it to the NTP Pool](https://www.ntpp
 
 The playbook logs chrony's server counters every minute to `/var/log/chrony/serverstats.log`, rotated along with chrony's other logs. Each line is a UTC timestamp followed by the fields from `chronyc -c serverstats` (NTP requests received, dropped by rate limiting, etc.). The counters reset when chrony restarts.
 
-To chart NTP requests per second in the terminal, run `ntp-stats` on the VPS:
+To chart NTP requests per second in the terminal, run `ntp-stats` on the VPS (with `sudo`, since chrony's log directory is only readable by root and chrony):
 
 ```
-ntp-stats            # last 24 hours, hourly
-ntp-stats 168        # last 7 days, hourly
-ntp-stats 2 10       # last 2 hours, 10-minute buckets
-ntp-stats 0.25 1     # last 15 minutes, per minute
+sudo ntp-stats            # last 24 hours, hourly
+sudo ntp-stats 168        # last 7 days, hourly
+sudo ntp-stats 2 10       # last 2 hours, 10-minute buckets
+sudo ntp-stats 0.25 1     # last 15 minutes, per minute
 ```
 
 The NTP Pool's monitors also publish offsets and scores for the server at `https://www.ntppool.org/scores/<vps-ip>`.

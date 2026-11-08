@@ -4,6 +4,7 @@ import argparse
 import glob
 import gzip
 import os
+import sys
 from datetime import datetime, timedelta, timezone
 
 LOG = "/var/log/chrony/serverstats.log"
@@ -13,7 +14,12 @@ WIDTH = 50
 
 def read_lines():
     """Yield log lines oldest first, including rotated (and gzipped) logs."""
-    for path in sorted(glob.glob(LOG + "*"), key=os.path.getmtime):
+    if not os.access(os.path.dirname(LOG), os.R_OK | os.X_OK):
+        sys.exit(f"Can't read {os.path.dirname(LOG)}; run with sudo.")
+    paths = sorted(glob.glob(LOG + "*"), key=os.path.getmtime)
+    if not paths:
+        sys.exit(f"{LOG} doesn't exist yet; it's written every minute by cron.")
+    for path in paths:
         opener = gzip.open if path.endswith(".gz") else open
         with opener(path, "rt", encoding="utf-8") as f:
             yield from f
