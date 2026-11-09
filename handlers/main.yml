@@ -46,3 +46,7 @@
     name: time-status
     state: restarted
     daemon-reload: true
+
+- name: Apply strict ARP settings
+  ansible.builtin.command: sysctl -p /etc/sysctl.d/90-strict-arp.conf
+  changed_when: true

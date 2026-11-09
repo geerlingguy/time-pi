@@ -26,3 +26,15 @@
   when: >
     modify_boot_config is changed
     or modify_cmdline_txt is changed
+
+# Only answer ARP for an IP on the interface that owns it, so eth0 and eth1 on
+# the same LAN don't both claim each other's addresses ("ARP flux").
+- name: Configure strict ARP.
+  ansible.builtin.copy:
+    content: |
+      net.ipv4.conf.all.arp_ignore = 1
+      net.ipv4.conf.all.arp_announce = 2
+    dest: /etc/sysctl.d/90-strict-arp.conf
+    mode: 0644
+  when: strict_arp | default(false)
+  notify: Apply strict ARP settings

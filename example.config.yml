@@ -44,6 +44,10 @@ chrony_pool: "2.debian.pool.ntp.org iburst noselect"
 # See: https://chrony-project.org/doc/3.4/chrony.conf.html#allow
 chrony_allow: "10.0.2.0/24"
 
+# Set to true if eth0 and eth1 are on the same LAN, so each answers ARP only for
+# its own IP (otherwise the router may see the Pi's IPs flip between MACs).
+strict_arp: false
+
 # Force i226 eth1 interface to 1 Gbps speed (set in the NetworkManager profile,
 # before link-up; a post-up ethtool renegotiation resets the NIC and kills
 # ts2phc's PPS input). See: https://github.com/geerlingguy/time-pi/issues/2
