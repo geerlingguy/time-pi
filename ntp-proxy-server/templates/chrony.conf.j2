@@ -12,4 +12,5 @@ rtcsync
 # Serve time to everyone, rate limited.
 allow
 ratelimit interval 1 burst 16
-clientloglimit 100000000
+# 256 MiB: enough to track about 2 million client IPs for rate limiting.
+clientloglimit 268435456

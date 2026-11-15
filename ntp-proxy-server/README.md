@@ -61,4 +61,6 @@ sudo ntp-stats 2 10       # last 2 hours, 10-minute buckets
 sudo ntp-stats 0.25 1     # last 15 minutes, per minute
 ```
 
+For bandwidth, the playbook also installs [vnstat](https://humdi.net/vnstat/), which keeps hourly, daily and monthly traffic totals: `vnstat -h`, `vnstat -d`, `vnstat -m`, or `vnstat -l` for a live view.
+
 The NTP Pool's monitors also publish offsets and scores for the server at `https://www.ntppool.org/scores/<vps-ip>`.
