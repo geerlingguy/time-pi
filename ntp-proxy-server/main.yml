@@ -76,11 +76,12 @@
         state: started
         enabled: true
 
-    - name: Install chrony and cron.
+    - name: Install chrony, cron and vnstat.
       ansible.builtin.apt:
         name:
           - chrony
           - cron
+          - vnstat
         state: present
 
     - name: Configure chrony.
