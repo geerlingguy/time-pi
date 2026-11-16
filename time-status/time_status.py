@@ -319,7 +319,7 @@ def prune(cutoff):
 def adev_worker():
     while True:
         try:
-            since = int(time.time() - 30 * 86400)
+            since = int(time.time() - RETENTION_DAYS * 86400)
             adev = {src: allan(src, since) for src in ("phc", "sys")}
             with lock:
                 live["adev"] = {k: v for k, v in adev.items() if v}

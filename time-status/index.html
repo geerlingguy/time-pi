@@ -161,7 +161,7 @@ footer { margin-top: 2.5rem; padding: 1.25rem 0 2rem; border-top: .4rem dotted v
   </div>
   <div class="chart">
     <div class="head"><h3><span tabindex="0" data-tip="How much each oscillator's rate wanders when averaged over time τ. Lower is steadier: 1×10⁻⁹ means its rate varies by about 1 ns per second.">Frequency stability (Allan deviation)</span></h3><div class="legend" id="legend-adev"></div></div>
-    <div class="muted small">Overlapping ADEV over the last 30 days, from each servo's per-minute frequency corrections against GPS. Only the part well above the dashed GPS PPS noise floor describes the oscillator itself.</div>
+    <div class="muted small">Overlapping ADEV over all stored history, from each servo's per-minute frequency corrections against GPS. Only the part well above the dashed GPS PPS noise floor describes the oscillator itself.</div>
     <div class="plot" id="plot-adev"></div>
   </div>
 
