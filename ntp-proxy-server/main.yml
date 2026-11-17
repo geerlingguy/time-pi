@@ -33,7 +33,7 @@
   become: true
 
   vars:
-    security_autoupdate_reboot: "true"
+    security_autoupdate_reboot: "false"
     firewall_disable_ufw: true
     firewall_allowed_tcp_ports: ["22"]
     firewall_allowed_udp_ports: ["123", "{{ wg_port }}"]
