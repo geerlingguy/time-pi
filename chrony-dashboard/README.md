@@ -10,12 +10,25 @@ It also includes a light, dark, and 'TrueTime' vintage theme.
 
 ## Installation
 
+### Raspberry Pi OS
+
 ```
 sudo mkdir -p /opt/chrony-dashboard
 sudo cp chrony_dashboard.py chart.umd.min.js /opt/chrony-dashboard/
 sudo cp chrony-dashboard.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now chrony-dashboard
+```
+
+### Alpine Linux
+
+```
+apk add python3
+mkdir -p /opt/chrony-dashboard
+cp chrony_dashboard.py chart.umd.min.js /opt/chrony-dashboard/
+cp chrony-dashboard /etc/init.d/
+rc-update add chrony-dashboard default
+rc-update chrony-dashboard start
 ```
 
 ## Configuration
