@@ -111,6 +111,15 @@
         dest: /usr/local/bin/ntp-stats
         mode: 0755
 
+    # Runs with sudo, so only root may modify it.
+    - name: Install ntptop dashboard.
+      ansible.builtin.copy:
+        src: files/ntptop.py
+        dest: /usr/local/bin/ntptop
+        owner: root
+        group: root
+        mode: 0755
+
 - name: Connect Time Pi to NTP proxy server.
   hosts: time_pi
   become: true
