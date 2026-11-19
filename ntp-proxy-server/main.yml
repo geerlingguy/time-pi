@@ -33,11 +33,6 @@
   become: true
 
   vars:
-    chronytop_url: "https://github.com/geerlingguy/chronytop/releases/download/{{ chronytop_version }}"
-    chronytop_arch:
-      x86_64: amd64
-      aarch64: arm64
-      armv7l: arm
     security_autoupdate_reboot: "false"
     firewall_disable_ufw: true
     firewall_allowed_tcp_ports: ["22"]
@@ -116,15 +111,8 @@
         dest: /usr/local/bin/ntp-stats
         mode: 0755
 
-    # Runs with sudo, so only root may modify it.
     - name: Install chronytop dashboard.
-      ansible.builtin.get_url:
-        url: "{{ chronytop_url }}/chronytop-linux-{{ chronytop_arch[ansible_facts['architecture']] }}"
-        checksum: "sha256:{{ chronytop_url }}/SHA256SUMS"
-        dest: /usr/local/bin/chronytop
-        owner: root
-        group: root
-        mode: 0755
+      ansible.builtin.include_tasks: ../tasks/chronytop.yml
 
 - name: Connect Time Pi to NTP proxy server.
   hosts: time_pi

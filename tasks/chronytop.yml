@@ -1,0 +1,17 @@
+---
+# Runs with sudo, so only root may modify it.
+- name: Install chronytop dashboard.
+  ansible.builtin.get_url:
+    url: "{{ chronytop_url }}/chronytop-linux-{{ chronytop_arch[ansible_facts['architecture']] }}"
+    checksum: "sha256:{{ chronytop_url }}/SHA256SUMS"
+    dest: /usr/local/bin/chronytop
+    owner: root
+    group: root
+    mode: 0755
+  vars:
+    chronytop_release: "{{ chronytop_version | default('v0.2.1') }}"
+    chronytop_url: "https://github.com/geerlingguy/chronytop/releases/download/{{ chronytop_release }}"
+    chronytop_arch:
+      x86_64: amd64
+      aarch64: arm64
+      armv7l: arm
