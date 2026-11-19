@@ -51,6 +51,8 @@ This playbook will configure:
 
 > **Intel i226 Notes**: Currently I can't get the i226 to work with DHCP at all, so I have to manually set an IP address using `nmtui`. It also [doesn't work at 2.5 Gbps currently](https://github.com/geerlingguy/raspberry-pi-pcie-devices/issues/674#issuecomment-2533117275), and it can't be overridden via Linux, so I make sure to plug it into a 1 Gbps port on my network.
 
+> **TimeHAT igc driver**: PPS input on the TimeHAT's i226 (used by `ts2phc`) needs a patched Intel `igc` driver, which is **not** in this repository. It comes from the [Time-Appliances-Project/TimeHAT](https://github.com/Time-Appliances-Project/TimeHAT) repo as a zip per kernel series (`igc_ppsfix_zip_url` in `config.yml`, e.g. `intel-igc-ppsfix_rpi5_6.12.62.zip`). The playbook (`tasks/igc-dkms.yml`) builds it with DKMS and swaps it in for the stock module, and re-applies it after a kernel update puts the stock driver back. Without it, `ts2phc` fails with `PTP_EXTTS_REQUEST2 failed: Operation not supported`. If you move to a new kernel series, check the TimeHAT repo for a matching zip and update `igc_ppsfix_zip_url` and `igc_dkms_version`.
+
 ## Setup - Client Pis
 
 For client Pis, make sure you have them listed under a `[clients]` heading in your `hosts.ini` file, then run the Ansible playbook:
