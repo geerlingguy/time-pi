@@ -25,11 +25,11 @@ The Time Pi should already be set up with the main playbook.
 
 4. Copy `example.hosts.ini` to `hosts.ini` and set the VPS's hostname and user, and the Time Pi's.
 
-5. Install the required roles and run the playbook (`-K` prompts for the VPS user's `sudo` password):
+5. Install the required roles and run the playbook:
 
    ```
    ansible-galaxy role install -r requirements.yml
-   ansible-playbook main.yml -K
+   ansible-playbook main.yml
    ```
 
 6. Verify it's working on the VPS:
