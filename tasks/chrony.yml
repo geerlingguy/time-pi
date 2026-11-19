@@ -50,6 +50,7 @@
   with_items:
     - allow.conf
     - refclock.conf
+    - servers.conf
 
 - name: Ensure chrony is running.
   ansible.builtin.service:

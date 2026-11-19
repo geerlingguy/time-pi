@@ -1,0 +1,5 @@
+# {{ ansible_managed }}
+# Extra servers to compare against (noselect: never used to set the time).
+{% for server in chrony_servers | default([]) %}
+server {{ server }} iburst noselect
+{% endfor %}

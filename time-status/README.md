@@ -17,7 +17,7 @@ The footer dots show whether each data source (gpsd, chrony, ts2phc, and phc2sys
 
 The Allan deviation chart is computed every 10 minutes from the per-minute mean frequency correction of ts2phc (the NIC oscillator vs GPS) and phc2sys or chrony (the Pi's oscillator vs the PHC) over all stored history (`DASH_RETENTION`). A point at τ needs a gap-free run of about 7τ, so long τ fills in over weeks. Short τ includes GPS PPS noise and servo action, so the chart also draws an estimated PPS noise floor (√3·σ/τ, from the 24h PHC σ).
 
-"Locked" means ts2phc reported servo state `s2` for at least half of the samples in a minute. Offset statistics only include locked samples. The NTP servers in `chrony.conf` (`pool ... noselect` by default) are used for comparison only; their offsets include network path asymmetry, so a few hundred µs is normal.
+"Locked" means ts2phc reported servo state `s2` for at least half of the samples in a minute. Offset statistics only include locked samples. The NTP servers in `chrony.conf` (`chrony_pool`, plus any `chrony_servers`, all `noselect`) are used for comparison only; their offsets include network path asymmetry, so a few hundred µs is normal.
 
 ## Installation
 
