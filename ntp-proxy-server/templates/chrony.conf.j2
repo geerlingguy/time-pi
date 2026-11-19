@@ -1,7 +1,8 @@
 # {{ ansible_managed }}
 
 # Time Pi over WireGuard; the public servers are a sanity check and backup.
-server {{ wg_pi_address }} iburst minpoll 0 maxpoll 4 xleave prefer
+# maxdelay ignores the Time Pi over slow, uneven paths (e.g. a 5G backup link).
+server {{ wg_pi_address }} iburst minpoll 0 maxpoll 4 xleave prefer maxdelay 0.05
 server time.cloudflare.com iburst
 server time-a-g.nist.gov iburst
 server time-a-wwv.nist.gov iburst
