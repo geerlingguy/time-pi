@@ -50,6 +50,14 @@ After it's been stable for a few days, [add it to the NTP Pool](https://www.ntpp
 
 ## Monitoring
 
+To get alerted when the VPS can't reach the Time Pi (or the VPS itself is down), create a check on [Healthchecks.io](https://healthchecks.io) (free) with a 5 minute period and 10 minute grace time, and set its ping URL in your inventory:
+
+```
+ntp-01.jeffgeerling.com  ansible_user=jeff  healthcheck_ping_url=https://hc-ping.com/your-uuid
+```
+
+Every 5 minutes, the VPS pings that URL only if chrony has heard from the Time Pi recently (its reachability register isn't `0`). Healthchecks.io emails or pushes an alert when the pings stop.
+
 The playbook logs chrony's server counters every minute to `/var/log/chrony/serverstats.log`, rotated along with chrony's other logs. Each line is a UTC timestamp followed by the fields from `chronyc -c serverstats` (NTP requests received, dropped by rate limiting, etc.). The counters reset when chrony restarts.
 
 To chart NTP requests per second in the terminal, run `ntp-stats` on the VPS (with `sudo`, since chrony's log directory is only readable by root and chrony):

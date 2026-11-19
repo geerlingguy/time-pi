@@ -4,6 +4,9 @@
 server {{ wg_pi_address }} iburst minpoll 0 maxpoll 4 xleave prefer
 server time.cloudflare.com iburst
 server time-a-g.nist.gov iburst
+server time-a-wwv.nist.gov iburst
+server time-a-b.nist.gov iburst
+server time.apple.com iburst
 
 driftfile /var/lib/chrony/chrony.drift
 makestep 1 3

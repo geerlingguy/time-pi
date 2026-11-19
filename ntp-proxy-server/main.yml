@@ -81,11 +81,12 @@
         state: started
         enabled: true
 
-    - name: Install chrony, cron and vnstat.
+    - name: Install chrony, cron, curl and vnstat.
       ansible.builtin.apt:
         name:
           - chrony
           - cron
+          - curl
           - vnstat
         state: present
 
@@ -109,6 +110,18 @@
         cron_file: chrony-serverstats
         user: root
         job: 'echo "$(date -u +\%FT\%TZ),$(chronyc -c serverstats)" >> /var/log/chrony/serverstats.log'
+
+    # healthchecks.io (or similar) alerts when these pings stop.
+    - name: Ping a health check while the Time Pi is reachable.
+      ansible.builtin.cron:
+        name: time-pi health check
+        cron_file: time-pi-healthcheck
+        user: root
+        minute: '*/5'
+        job: >-
+          chronyc -c -n sources | grep -q '^\^,[^,]*,{{ wg_pi_address }},[^,]*,[^,]*,[1-7]'
+          && curl -fsS -m 10 --retry 3 -o /dev/null {{ healthcheck_ping_url | quote }}
+      when: healthcheck_ping_url | default('') | length > 0
 
     - name: Install ntp-stats script.
       ansible.builtin.copy:
