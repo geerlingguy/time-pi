@@ -3,11 +3,11 @@
 # timecheck.sh - Quick health check for a time-pi GPS/NTP/PTP grandmaster.
 #
 # Checks (in order):
-#   1. GPS   - gpsd running, 3D fix, satellite count/signal, PPS present,
-#              gpspipe-socat bridge for ts2phc
+#   1. GPS   - gpsd running, 3D/TIME fix, u-blox TIME mode, satellite
+#              count/signal, PPS present, gpspipe-socat bridge for ts2phc
 #   2. NIC   - PTP interface up, speed, hardware timestamping, driver errors
-#   3. PTP   - ts2phc / ptp4l / phc2sys healthy, PHC disciplined, port MASTER,
-#              clockClass/timeTraceable, PHC-vs-system offset
+#   3. PTP   - ts2phc (+ watchdog) / ptp4l / phc2sys healthy, PHC disciplined,
+#              port MASTER, clockClass/timeTraceable, PHC-vs-system offset
 #   4. NTP   - chrony synced, sources reachable, selected refclock, stratum
 #   5. SYS   - temperature, throttling, load
 #
@@ -95,8 +95,8 @@ svc_check() {   # svc_check <unit> <what it does>
   if printf '%s\n' "$tail6" | grep -q 'PTP_EXTTS_REQUEST'; then
     hint "Kernel/NIC driver rejected the PPS-input (extts) request on the PHC's SDP pin. Config didn't change -> kernel did?"
     hint "  uname -r ; grep -iE 'linux-image|rpi.*kernel|linuxptp' /var/log/apt/history.log | tail"
-    hint "  cat /sys/class/ptp/ptp0/pins/*       (SDP0 should be free or 'extts 0')"
-    hint "  sudo ts2phc -c $PHC -s nmea -m -l 7 --ts2phc.nmea_serialport /dev/gps-ts2phc --ts2phc.pulsewidth 1000000 --ts2phc.extts_polarity rising   (then try 'both')"
+    hint "  cat /sys/class/ptp/ptp0/pins/*       (the PPS pin, SDP2 on the TimeHAT, should be free or 'extts')"
+    hint "  sudo ts2phc -c $PHC -s nmea -m -l 7 --ts2phc.nmea_serialport /dev/gps-ts2phc --ts2phc.pulsewidth 1000000 --ts2phc.pin_index 2 --ts2phc.extts_polarity rising   (then try 'both')"
     hint "Meanwhile PTP clients are getting WRONG time: sudo systemctl stop ptp4l, or switch to the chrony-PPS fallback (see README)."
   else
     hint "sudo journalctl -u $u -n 50 ; sudo systemctl restart $u"
@@ -147,13 +147,13 @@ if svc_check gpsd "GPS daemon"; then
     # Summarize: mode usedSats totalSats avgSNR maxSNR gpstime
     GPS_SUM=$(printf '%s\n' "$GPS_JSON" | python3 -c '
 import sys, json
-mode=None; used=None; total=None; snr=[]; t=None; dev=None
+mode=None; used=None; total=None; snr=[]; t=None; dev=None; status=None
 for line in sys.stdin:
     try: m=json.loads(line)
     except Exception: continue
     c=m.get("class")
     if c=="TPV":
-        mode=m.get("mode",mode); t=m.get("time",t); dev=m.get("device",dev)
+        mode=m.get("mode",mode); t=m.get("time",t); dev=m.get("device",dev); status=m.get("status",status)
     elif c=="SKY":
         sats=m.get("satellites")
         if sats is not None:
@@ -164,9 +164,10 @@ for line in sys.stdin:
 avg=sum(snr)/len(snr) if snr else 0
 mx=max(snr) if snr else 0
 print(mode if mode is not None else -1, used if used is not None else -1,
-      total if total is not None else -1, round(avg,1), mx, t or "-", dev or "-")
+      total if total is not None else -1, round(avg,1), mx, t or "-", dev or "-",
+      status if status is not None else -1)
 ' 2>/dev/null)
-    read -r G_MODE G_USED G_TOTAL G_AVG G_MAX G_TIME G_DEV <<<"${GPS_SUM:-"-1 -1 -1 0 0 - -"}"
+    read -r G_MODE G_USED G_TOTAL G_AVG G_MAX G_TIME G_DEV G_STATUS <<<"${GPS_SUM:-"-1 -1 -1 0 0 - - -1"}"
 
     if [ -z "$GPS_JSON" ]; then
       fail "gpsd returned no data (is the receiver talking? baud rate?)"
@@ -175,7 +176,8 @@ print(mode if mode is not None else -1, used if used is not None else -1,
       hint "sudo systemctl restart gpsd"
     else
       case "$G_MODE" in
-        3) ok "GPS has a 3D fix (device $G_DEV)";;
+        3) if [ "$G_STATUS" = 7 ]; then ok "GPS has a TIME fix (fixed position, device $G_DEV)"
+           else ok "GPS has a 3D fix (device $G_DEV)"; fi;;
         2) warn "GPS has only a 2D fix"; hint "Antenna view of sky is marginal; wait or improve antenna placement";;
         1|0|-1) fail "GPS has NO fix (mode=$G_MODE)"
                 hint "Check antenna connection / sky view; 'cgps -s' to watch. Cold start can take minutes."
@@ -221,6 +223,37 @@ print(mode if mode is not None else -1, used if used is not None else -1,
         warn "No time in TPV report yet"
       fi
     fi
+  fi
+
+  # u-blox timing receivers (ZED-F9T etc.): TIME mode = fixed antenna position. See README.
+  if have ubxtool; then
+    PROTVER=$(timeout 6 ubxtool -w 1 -p MON-VER 2>/dev/null | grep -oE 'PROTVER=[0-9.]+' | head -1 | cut -d= -f2)
+    TMODE=""
+    [ -n "$PROTVER" ] && TMODE=$(timeout 5 ubxtool -P "$PROTVER" -w 0.5 -g CFG-TMODE-MODE,0 2>/dev/null | grep -oE 'TMODE-MODE\S* val [0-9]+' | awk '{print $3}' | head -1)
+    case "$TMODE" in
+      0) ok "GPS TIME mode off (normal position fix); optional on timing receivers, see README" ;;
+      1)
+        SVIN=$(timeout 5 ubxtool -P "$PROTVER" -w 0.5 -p TIM-SVIN 2>/dev/null | grep -A2 'UBX-TIM-SVIN' | tr '\n' ' ')
+        raw "$SVIN"
+        sv() { printf '%s\n' "$SVIN" | awk -v k="$1" '{for(i=1;i<NF;i++) if($i==k){print $(i+1); exit}}'; }
+        SV_ACC=$(awk -v v="$(sv meanV)" 'BEGIN{printf "%.2f", sqrt(v)/1000}')
+        if [ "$(sv valid)" = 1 ]; then
+          warn "GPS TIME mode via survey-in (done, ~${SV_ACC}m); it re-surveys after every power cycle"
+          hint "Save the surveyed position as fixed (CFG-TMODE-MODE 2) so it boots straight into TIME mode; see README"
+        elif [ "$(sv active)" = 1 ]; then
+          warn "GPS survey-in in progress: $(sv dur)s elapsed, ~${SV_ACC}m so far (TIME fix when done)"
+          hint "Ends once both CFG-TMODE-SVIN_MIN_DUR and SVIN_ACC_LIMIT are met. Progress: ubxtool -P $PROTVER -p TIM-SVIN"
+        else
+          fail "GPS TIME mode set to survey-in, but no survey is running or done"
+          hint "ubxtool -P $PROTVER -p TIM-SVIN ; check the receiver has a 3D fix"
+        fi ;;
+      2) if [ "$G_STATUS" = 7 ]; then ok "GPS TIME mode with fixed position"
+         else
+           fail "GPS TIME mode with fixed position, but gpsd reports no TIME fix (status=$G_STATUS)"
+           hint "Wrong saved position (antenna moved?) gives wrong time. Re-survey: ubxtool -P $PROTVER -z CFG-TMODE-MODE,1"
+         fi ;;
+      *) [ -n "$PROTVER" ] && raw "CFG-TMODE-MODE not readable (receiver without TIME mode?)" ;;
+    esac
   fi
 fi
 
@@ -281,8 +314,12 @@ else
     NIC_OK=1
     if [ "$SPEED" != 1000 ] && [ "$SPEED" != "?" ]; then
       warn "$IFACE is at ${SPEED} Mb/s; i226 on the Pi is only reliable at 1000"
-      hint "sudo ethtool -s $IFACE autoneg on speed 1000 duplex full  (see /etc/network/if-up.d/$IFACE)"
+      hint "Set i226_force_1gbps: true and re-run the playbook (forces 1000 in the NetworkManager profile)"
       hint "Plug into a 1 GbE switch port, not 2.5 GbE"
+    fi
+    if [ -e "/etc/network/if-up.d/$IFACE" ]; then
+      warn "Legacy /etc/network/if-up.d/$IFACE speed hook present; it renegotiates the link after boot and kills ts2phc's PPS input"
+      hint "Re-run the playbook (i226 task removes it), or: sudo rm /etc/network/if-up.d/$IFACE"
     fi
   else
     fail "$IFACE link is $OPER (carrier=$CARRIER)"
@@ -496,9 +533,29 @@ if svc_check ptp4l "PTP grandmaster on $IFACE"; then
   fi
 fi
 
-# --- phc2sys: PHC -> system clock ---
+# --- ts2phc watchdog: restarts ts2phc when it goes quiet ---
+if [ -f /etc/systemd/system/ts2phc-watchdog.timer ]; then
+  if svc_active ts2phc-watchdog.timer; then
+    NW=$(journalctl -t ts2phc-watchdog --since "24 hours ago" --no-pager -o cat 2>/dev/null | grep -c restarting)
+    if [ "${NW:-0}" -gt 0 ]; then
+      warn "ts2phc watchdog restarted ts2phc $NW times in the last 24h (NIC resets / link flaps?)"
+      hint "journalctl -t ts2phc-watchdog --since '24 hours ago' ; correlate with: journalctl -k | grep -iE 'igc|$IFACE'"
+    else
+      ok "ts2phc watchdog timer active (no restarts in the last 24h)"
+    fi
+  else
+    fail "ts2phc-watchdog.timer is not active (a quiet ts2phc won't be restarted)"
+    hint "sudo systemctl enable --now ts2phc-watchdog.timer"
+  fi
+fi
+
+# --- phc2sys: PHC -> system clock (unless chrony disciplines from a PHC refclock) ---
+CHRONY_PHC=0
+grep -qE '^\s*refclock\s+PHC' /etc/chrony/conf.d/refclock.conf 2>/dev/null && CHRONY_PHC=1
 PHC2SYS_ON=0
-if svc_check phc2sys "$PHC -> system clock"; then
+if [ "$CHRONY_PHC" = 1 ] && ! svc_active phc2sys; then
+  ok "phc2sys stopped (chrony disciplines the system clock from the PHC refclock)"
+elif svc_check phc2sys "$PHC -> system clock"; then
   PHC2SYS_ON=1
   NE=$(jgrep phc2sys 'fail|error|clockcheck|waiting|invalid')
   if [ "${NE:-0}" -gt 0 ]; then
@@ -521,8 +578,12 @@ if [ -e "$PHC" ] && have phc_ctl; then
     ADELTA=${DELTA#-}
     if [ "$ADELTA" -gt "$PHC_SYS_FAIL_NS" ]; then
       fail "PHC vs system clock off by $(( DELTA / 1000 ))us beyond the ${TAI}s TAI offset (raw ${OFFNS}ns)"
-      hint "phc2sys isn't steering the system clock (or something else is). Check phc2sys above, and that chrony has no competing refclock."
-      hint "sudo systemctl restart phc2sys ; if offset is huge, phc2sys --step_threshold=1 should step it within a few seconds"
+      if [ "$CHRONY_PHC" = 1 ]; then
+        hint "chrony isn't steering the system clock to the PHC. Check the PHC refclock in the NTP section, and leap data (leapsectz/leapseclist) for 'tai'."
+      else
+        hint "phc2sys isn't steering the system clock (or something else is). Check phc2sys above, and that chrony has no competing refclock."
+        hint "sudo systemctl restart phc2sys ; if offset is huge, phc2sys --step_threshold=1 should step it within a few seconds"
+      fi
     elif [ "$ADELTA" -gt "$PHC_SYS_WARN_NS" ]; then
       warn "PHC vs system clock off by $(( DELTA / 1000 ))us beyond the ${TAI}s TAI offset (want < $(( PHC_SYS_WARN_NS / 1000 ))us)"
     else
@@ -613,6 +674,19 @@ if svc_check chrony "NTP server"; then
         hint "grep -rE '^(server|pool|peer)' /etc/chrony/  -> add 'noselect' to that line or remove it"
       fi
     fi
+    # PHC keeps TAI; chrony's 'tai' refclock option needs leap second data.
+    if [ "$CHRONY_PHC" = 1 ]; then
+      LEAPCFG=$(grep -hE '^\s*(leapsectz|leapseclist)\s' /etc/chrony/chrony.conf /etc/chrony/conf.d/*.conf 2>/dev/null | head -1)
+      if [ -z "$LEAPCFG" ]; then
+        fail "chrony PHC refclock (TAI) has no leapsectz/leapseclist; system clock will be off by TAI-UTC"
+        hint "chrony 4.6+: leapseclist /usr/share/zoneinfo/leap-seconds.list ; older: leapsectz right/UTC  (in chrony_refclock)"
+      elif printf '%s' "$LEAPCFG" | grep -q leapsectz && [ ! -e "/usr/share/zoneinfo/$(printf '%s' "$LEAPCFG" | awk '{print $2}')" ]; then
+        fail "chrony '$LEAPCFG' but /usr/share/zoneinfo/$(printf '%s' "$LEAPCFG" | awk '{print $2}') is missing"
+        hint "sudo apt install --reinstall tzdata  (Debian 13 moved right/ zones to tzdata-legacy: apt install tzdata-legacy)"
+      else
+        ok "chrony has leap second data for the TAI PHC refclock ($LEAPCFG)"
+      fi
+    fi
     # Is anyone being served?
     CLIENTS=$(chronyc -n clients 2>/dev/null | awk 'NR>2 && $2>0' | wc -l)
     ok "chrony has served $CLIENTS NTP client address(es) since start"
@@ -645,6 +719,7 @@ fi
 LOAD1=$(awk '{print $1}' /proc/loadavg)
 if awk "BEGIN{exit !($LOAD1 > $LOAD_WARN)}"; then warn "1-min load average $LOAD1"; else ok "Load average $LOAD1"; fi
 if [ -f /var/run/reboot-required ]; then warn "Reboot required (kernel/firmware update pending)"; fi
+[ -f /etc/systemd/system/time-status.service ] && svc_check time-status "public status page"
 
 ############################################################################
 printf '\n%s== Summary ==%s  %s%d ok%s  %s%d warn%s  %s%d fail%s\n' \
