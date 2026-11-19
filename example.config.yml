@@ -91,7 +91,7 @@ phc2sys_clock: 'CLOCK_REALTIME'
 phc2sys_source: '/dev/ptp0'
 phc2sys_extra_opts: '-O -37'  # PHC is TAI, system clock is UTC: offset = -(TAI-UTC)
 
-# chronytop TUI dashboard (https://github.com/geerlingguy/chronytop); run `sudo chronytop`.
+# chronytop TUI dashboard (https://github.com/geerlingguy/chronytop).
 chronytop_install: true
 
 # Public status page (GNSS, PHC/system offsets, chrony sources). See time-status/README.md.
