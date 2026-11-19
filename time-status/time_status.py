@@ -30,7 +30,7 @@ GPSD = ("127.0.0.1", int(os.environ.get("DASH_GPSD_PORT", "2947")))
 DB_PATH = os.environ.get("DASH_DB", os.path.join(os.environ.get("STATE_DIRECTORY", "."), "time-status.db"))
 POLL = 15           # seconds between chrony/systemd polls
 STALE = 10          # seconds before a servo or GNSS reading counts as stale
-CACHE_TTL = 30      # seconds to cache DB-backed API results
+REFRESH = 30        # seconds between precomputing DB-backed API results
 ADEV_EVERY = 600    # seconds between Allan deviation updates
 MAX_CONN = 32       # concurrent HTTP connections; extras are dropped
 MAX_LINE = 1 << 16  # longest gpsd line accepted
@@ -48,8 +48,7 @@ lock = threading.Lock()
 live = {"gnss": {}, "sats": [], "servo": {}, "chrony": None, "peers": [], "adev": {}}
 acc = {}  # (minute, src) -> per-minute servo accumulator
 db_lock = threading.Lock()
-cache_lock = threading.Lock()
-cache = {}
+cache = {}  # precomputed by refresher()
 state = {"db": None, "page": b"", "csp": ""}
 
 
@@ -367,13 +366,21 @@ def poller():
 
 # ------------------------------------------------------------------- api ----
 
+def refresher():
+    """Precompute DB-backed results, so requests never wait on a query."""
+    while True:
+        try:
+            cache["stats"] = window_stats()
+            for span in WINDOWS.values():
+                cache[f"hist-{span}"] = to_json(api_history(span))
+        except sqlite3.Error as e:
+            log(f"refresh: {e}")
+        time.sleep(REFRESH)
+
+
 def cached(key, fn):
-    """Return fn() at most once per CACHE_TTL, computed by one thread at a time."""
-    with cache_lock:
-        hit = cache.get(key)
-        if not hit or time.time() - hit[0] >= CACHE_TTL:
-            hit = cache[key] = (time.time(), fn())
-        return hit[1]
+    """Precomputed result, or fn() before the first refresh finishes."""
+    return cache.get(key) or cache.setdefault(key, fn())
 
 
 def servo_stats(src, since):
@@ -511,7 +518,7 @@ class Handler(BaseHTTPRequestHandler):
             elif url.path == "/api/history" and url.query in HISTORY_QUERIES:
                 span = HISTORY_QUERIES[url.query]
                 self.send(200, cached(f"hist-{span}", lambda: to_json(api_history(span))),
-                          "application/json", "max-age=30")
+                          "application/json", f"max-age={REFRESH}")
             else:
                 self.send(404, b"Not found\n", "text/plain; charset=utf-8", "max-age=300")
         except (BrokenPipeError, ConnectionResetError, TimeoutError):
@@ -563,7 +570,7 @@ def main():
     state["db"] = sqlite3.connect(DB_PATH, check_same_thread=False)
     state["db"].execute("PRAGMA journal_mode=WAL")
     state["db"].executescript(SCHEMA)
-    for fn in (gpsd_reader, journal_reader, poller, adev_worker):
+    for fn in (gpsd_reader, journal_reader, poller, adev_worker, refresher):
         threading.Thread(target=fn, daemon=True).start()
     server = Server((BIND, PORT), Handler)
     log(f"time-status on {BIND or '*'}:{PORT}, db {DB_PATH}")
