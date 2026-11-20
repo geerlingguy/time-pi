@@ -32,6 +32,7 @@ POLL = 15           # seconds between chrony/systemd polls
 STALE = 10          # seconds before a servo or GNSS reading counts as stale
 REFRESH = 30        # seconds between precomputing DB-backed API results
 ADEV_EVERY = 600    # seconds between Allan deviation updates
+ADEV_BRIDGE = 10    # missing minutes bridged by holding the last frequency, instead of splitting the data
 MAX_CONN = 32       # concurrent HTTP connections; extras are dropped
 MAX_LINE = 1 << 16  # longest gpsd line accepted
 MAX_SATS = 256
@@ -280,21 +281,33 @@ def flush():
             (minute, int(locked), gnss["used"], gnss["seen"], gnss["fix"], read_temp()))
 
 
+def phase_segments(rows):
+    """Integrate per-minute frequency (ppb) into phase (s), split into segments at long gaps."""
+    mean = sum(f for _, f in rows) / len(rows)  # constant offset doesn't change ADEV; removing it keeps precision
+    phases, x, last, prev = [], [0.0], None, None
+    for ts, f in rows:
+        gap = ts - last if last is not None else 60
+        if gap != 60:
+            missing = gap // 60 - 1
+            if gap % 60 == 0 and 0 < missing <= ADEV_BRIDGE:  # short gap, e.g. a restart: hold the last frequency
+                for _ in range(missing):
+                    x.append(x[-1] + (prev - mean) * 1e-9 * 60)
+            else:  # long gap: start a new contiguous segment
+                phases.append(x)
+                x = [0.0]
+        x.append(x[-1] + (f - mean) * 1e-9 * 60)
+        last, prev = ts, f
+    phases.append(x)
+    return phases
+
+
 def allan(src, since):
     """Overlapping Allan deviation at octave τ from a servo's per-minute mean frequency correction."""
     rows = db_exec("SELECT ts, freq FROM offsets WHERE src=? AND ts>=? AND freq IS NOT NULL ORDER BY ts",
                    (src, since))
     if not rows:
         return []
-    mean = sum(f for _, f in rows) / len(rows)  # constant offset doesn't change ADEV; removing it keeps precision
-    phases, x, last = [], [0.0], None
-    for ts, f in rows:
-        if last is not None and ts - last != 60:  # gap: start a new contiguous segment
-            phases.append(x)
-            x = [0.0]
-        x.append(x[-1] + (f - mean) * 1e-9 * 60)
-        last = ts
-    phases.append(x)
+    phases = phase_segments(rows)
     out, m = [], 1
     while True:
         total = count = 0
