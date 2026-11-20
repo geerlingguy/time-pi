@@ -281,12 +281,8 @@ def flush():
             (minute, int(locked), gnss["used"], gnss["seen"], gnss["fix"], read_temp()))
 
 
-def allan(src, since):
-    """Overlapping Allan deviation at octave τ from a servo's per-minute mean frequency correction."""
-    rows = db_exec("SELECT ts, freq FROM offsets WHERE src=? AND ts>=? AND freq IS NOT NULL ORDER BY ts",
-                   (src, since))
-    if not rows:
-        return []
+def phase_segments(rows):
+    """Integrate per-minute frequency (ppb) into phase (s), split into segments at long gaps."""
     mean = sum(f for _, f in rows) / len(rows)  # constant offset doesn't change ADEV; removing it keeps precision
     phases, x, last, prev = [], [0.0], None, None
     for ts, f in rows:
@@ -302,6 +298,16 @@ def allan(src, since):
         x.append(x[-1] + (f - mean) * 1e-9 * 60)
         last, prev = ts, f
     phases.append(x)
+    return phases
+
+
+def allan(src, since):
+    """Overlapping Allan deviation at octave τ from a servo's per-minute mean frequency correction."""
+    rows = db_exec("SELECT ts, freq FROM offsets WHERE src=? AND ts>=? AND freq IS NOT NULL ORDER BY ts",
+                   (src, since))
+    if not rows:
+        return []
+    phases = phase_segments(rows)
     out, m = [], 1
     while True:
         total = count = 0
