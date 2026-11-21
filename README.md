@@ -138,6 +138,51 @@ ubxtool -P 29.20 -z CFG-TP-ANT_CABLEDELAY,82    # saved to RAM and flash
 
 Changing it shifts the PPS by the difference from the old value; ts2phc pulls the PHC over within a few seconds. For receivers without this setting, ts2phc's `ts2phc.extts_correction` can compensate instead (see `man ts2phc`).
 
+### TIME mode (fixed antenna position)
+
+By default the receiver solves for position and time every second. If the antenna never moves, a timing receiver like the ZED-F9T can use a known, fixed position and solve only for time, which is more accurate. u-blox calls this TIME mode. See [#18](https://github.com/geerlingguy/time-pi/issues/18) for the full walkthrough.
+
+**1. Survey in** the antenna position (at least 24 hours, until it's accurate to 1 m):
+
+```
+ubxtool -P 29.20 -z CFG-TMODE-SVIN_MIN_DUR,86400
+ubxtool -P 29.20 -z CFG-TMODE-SVIN_ACC_LIMIT,10000
+ubxtool -P 29.20 -z CFG-TMODE-MODE,1
+```
+
+`-z` saves to RAM, BBR and flash. The survey only ends once *both* limits are met, and without RTK corrections a very tight `SVIN_ACC_LIMIT` (in 0.1 mm) may never be reached. A 1 m position error adds no more than about 3 ns of timing error.
+
+**2. Wait** for `valid 1`. `meanV` is the variance in mm², so √`meanV` is the accuracy in mm:
+
+```
+$ ubxtool -P 29.20 -w 0.5 -p TIM-SVIN | grep -A3 TIM-SVIN
+UBX-TIM-SVIN:
+  dur 86401 meanX [redacted] meanY [redacted] meanZ [redacted] meanV 6551
+  obs 86402 valid 1 active 0
+```
+
+The receiver then switches to TIME mode on its own (`fixType 5`):
+
+```
+$ ubxtool -P 29.20 -w 2 -p NAV-PVT | grep fixType
+  tAcc 21 nano 399884 fixType 5 flags x1 flags2 xea
+```
+
+**3. Save the position as fixed.** In survey-in mode (`1`) it re-surveys after every power cycle. Copy `meanX`/`meanY`/`meanZ` (cm) into fixed mode (`2`), and set `FIXED_POS_ACC` (0.1 mm) to the survey accuracy:
+
+```
+ubxtool -P 29.20 -z CFG-TMODE-POS_TYPE,0
+ubxtool -P 29.20 -z CFG-TMODE-ECEF_X,<meanX>
+ubxtool -P 29.20 -z CFG-TMODE-ECEF_Y,<meanY>
+ubxtool -P 29.20 -z CFG-TMODE-ECEF_Z,<meanZ>
+ubxtool -P 29.20 -z CFG-TMODE-FIXED_POS_ACC,1000
+ubxtool -P 29.20 -z CFG-TMODE-MODE,2
+```
+
+Confirm `CFG-TMODE-MODE` is `val 2` in ram, bbr and flash (`ubxtool -P 29.20 -w 0.5 -g CFG-TMODE-MODE`). `resources/timecheck.sh` also reports the current mode.
+
+> **Warning**: A wrong fixed position gives wrong time, and nothing warns you. If the antenna moves, set `CFG-TMODE-MODE,1` and survey again. Also note that the surveyed coordinates are your antenna's exact location, so redact them before you share output.
+
 See this issue for more: [Debug NEO-M9N module on TimeHAT V2](https://github.com/geerlingguy/time-pi/issues/11).
 
 ## Debugging
