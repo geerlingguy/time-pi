@@ -26,6 +26,7 @@ PORT = int(os.environ.get("DASH_PORT", "80"))
 TITLE = os.environ.get("DASH_TITLE", os.uname().nodename)
 SUBTITLE = os.environ.get("DASH_SUBTITLE", "Stratum 1 NTP server, disciplined by GNSS")
 RETENTION_DAYS = int(os.environ.get("DASH_RETENTION", "90"))
+REFCLOCK = os.environ.get("DASH_REFCLOCK", "")  # refid of the chrony refclock steering the clock (no PHC)
 GPSD = ("127.0.0.1", int(os.environ.get("DASH_GPSD_PORT", "2947")))
 DB_PATH = os.environ.get("DASH_DB", os.path.join(os.environ.get("STATE_DIRECTORY", "."), "time-status.db"))
 POLL = 15           # seconds between chrony/systemd polls
@@ -275,7 +276,7 @@ def flush():
     db_exec("INSERT OR REPLACE INTO offsets VALUES (?,?,?,?,?,?,?,?,?)",
             [(ts, src, a["total"], a["n"], a["sum"], a["sumsq"], a["min"], a["max"],
               a["freq"] / a["n"] if a["n"] else None) for (ts, src), a in done.items()], many=True)
-    phc = done.get((minute, "phc"))
+    phc = done.get((minute, "sys" if REFCLOCK else "phc"))
     locked = bool(phc and phc["n"] >= phc["total"] / 2)
     db_exec("INSERT OR REPLACE INTO minutes VALUES (?,?,?,?,?,?)",
             (minute, int(locked), gnss["used"], gnss["seen"], gnss["fix"], read_temp()))
@@ -353,13 +354,37 @@ def record_phc_refclock(peers, freq_ppm, now):
             return
 
 
+def record_refclock(peers, freq_ppm, now):
+    """System clock vs GPS from the chrony refclock named by DASH_REFCLOCK, on a server with no PHC.
+
+    Any refclock chrony lists works (PPS, SOCK or SHM from gpsd), matched by its refid.
+
+    chrony takes a refclock sample every 2^poll seconds, often slower than this polls, so a sample
+    is recorded once, when its offset first appears; a poll that sees it again only marks the
+    refclock as alive. chrony dates a sample at the middle of its filter window, so LastRx runs
+    from about half a poll to one and a half; twice the poll is the limit for "still alive".
+    """
+    for p in peers:
+        if p["mode"] == "#" and p["addr"] == REFCLOCK and p["offset"] is not None \
+                and p["lastrx"] <= 2 * 2 ** max(p["poll"], 0):
+            servo_state = 2 if p["state"] == "*" else 0
+            with lock:
+                sys_clk = live["servo"].get("sys")
+                seen = sys_clk and sys_clk["offset"] == round(p["offset"] * 1e9) * 1e-9
+                if seen:
+                    sys_clk.update(ts=now, state=servo_state)
+            if not seen:
+                record("sys", round(p["offset"] * 1e9), servo_state, round((freq_ppm or 0) * 1000), via="chrony")
+            return
+
+
 def poller():
     last_prune, last_minute = 0, int(time.time()) // 60
     while True:
         try:
             tracking, peers, freq_ppm = poll_chrony()
             now = time.time()
-            record_phc_refclock(peers, freq_ppm, now)
+            (record_refclock if REFCLOCK else record_phc_refclock)(peers, freq_ppm, now)
             new = [(int(now - p["lastrx"]), p["name"], p["offset"]) for p in peers
                    if p["mode"] == "^" and p["lastrx"] < POLL and p["reach"] != "0" and p["offset"] is not None]
             if new:
@@ -447,10 +472,14 @@ def api_status():
     phc_ok = (phc and fresh(phc) and phc["state"] == 2
               and (not sys_clk or (fresh(sys_clk) and sys_clk["state"] == 2)))
     # Health from each data source's freshness, not systemd state (a running daemon can still be stuck).
-    sources = [{"name": "gpsd", "ok": gnss_age < STALE}, {"name": "chrony", "ok": chrony is not None},
-               {"name": "ts2phc", "ok": bool(phc and fresh(phc))}]
-    if sys_clk:  # from phc2sys logs or chrony's PHC refclock
-        sources.append({"name": "chrony PHC" if sys_clk["via"] == "chrony" else "phc2sys", "ok": fresh(sys_clk)})
+    sources = [{"name": "gpsd", "ok": gnss_age < STALE}, {"name": "chrony", "ok": chrony is not None}]
+    if REFCLOCK:  # no PHC: locked when chrony has the refclock selected and its samples are fresh
+        phc_ok = bool(sys_clk and fresh(sys_clk) and sys_clk["state"] == 2)
+        sources.append({"name": "chrony " + REFCLOCK, "ok": bool(sys_clk and fresh(sys_clk))})
+    else:
+        sources.append({"name": "ts2phc", "ok": bool(phc and fresh(phc))})
+        if sys_clk:  # from phc2sys logs or chrony's PHC refclock
+            sources.append({"name": "chrony PHC" if sys_clk["via"] == "chrony" else "phc2sys", "ok": fresh(sys_clk)})
     if not chrony:
         status = ("bad", "NTP service down")
     elif phc_ok and gnss["fix"] >= 2:
@@ -461,6 +490,7 @@ def api_status():
         status = ("warn", "Holdover")
     return {"status": status[0], "status_text": status[1], "servo": servo, "gnss": gnss, "sats": sats,
             "chrony": chrony, "peers": peers, "sources": sources, "temp": read_temp(),
+            "refclock": REFCLOCK or None,
             "stats": cached("stats", window_stats), "adev": adev, "now": time.time()}
 
 
@@ -583,7 +613,8 @@ def main():
     state["db"] = sqlite3.connect(DB_PATH, check_same_thread=False)
     state["db"].execute("PRAGMA journal_mode=WAL")
     state["db"].executescript(SCHEMA)
-    for fn in (gpsd_reader, journal_reader, poller, adev_worker, refresher):
+    readers = (gpsd_reader, poller) if REFCLOCK else (gpsd_reader, journal_reader, poller)  # no ts2phc/phc2sys logs
+    for fn in readers + (adev_worker, refresher):
         threading.Thread(target=fn, daemon=True).start()
     server = Server((BIND, PORT), Handler)
     log(f"time-status on {BIND or '*'}:{PORT}, db {DB_PATH}")

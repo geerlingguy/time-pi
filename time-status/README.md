@@ -19,6 +19,10 @@ The Allan deviation chart is computed every 10 minutes from the per-minute mean 
 
 "Locked" means ts2phc reported servo state `s2` for at least half of the samples in a minute. Offset statistics only include locked samples. The NTP servers in `chrony.conf` (`pool ... noselect` by default) are used for comparison only; their offsets include network path asymmetry, so a few hundred µs is normal.
 
+### Servers without a PHC
+
+On a Pi with a GPS HAT and no PTP-capable NIC, chrony disciplines the system clock straight from a GPS reference clock and there is no ts2phc or phc2sys. That can be the pulse on a GPIO pin (`refclock PPS /dev/pps0 refid PPS`), or gpsd's socket or shared memory (`refclock SOCK /run/chrony.ttyAMA0.sock refid SOCK`, `refclock SHM 1 refid PPS`). Set `DASH_REFCLOCK` to the refid of the one chrony selects, as `chronyc sources` shows it. The page then records one offset, the system clock against that refclock as chrony reports it in `chronyc sources`, shows the clock's frequency correction in ppm, and counts the server as locked while chrony has that refclock selected and its samples are fresh. The journal is not read, so the service needs no journal access.
+
 ## Installation
 
 Set `time_status_enabled: true` in `config.yml` (and optionally `time_status_title`, e.g. `time.jeffgeerling.com`), then run the playbook:
@@ -46,6 +50,7 @@ Environment variables (set in the systemd unit):
   - `DASH_GPSD_PORT`: gpsd port on localhost (default `2947`)
   - `DASH_TITLE` / `DASH_SUBTITLE`: page heading and tagline
   - `DASH_RETENTION`: days of history to keep (default `90`)
+  - `DASH_REFCLOCK`: refid of the chrony refclock that steers the clock (e.g. `PPS`, `SOCK`), for a server with no PHC; see above
   - `DASH_DB`: SQLite path (default `/var/lib/time-status/time-status.db`)
 
 To show a block of text below the stats (e.g. NTP client instructions), put an HTML snippet in `info.html` next to `time_status.py` (the `time_status_info` playbook variable), and restart the service. Scripts and styles in it are blocked by the page's CSP.
