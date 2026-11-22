@@ -9,7 +9,7 @@
     group: root
     mode: 0755
   vars:
-    chronytop_release: "{{ chronytop_version | default('v0.5.1') }}"
+    chronytop_release: "{{ chronytop_version | default('v0.6.0') }}"
     chronytop_url: "https://github.com/geerlingguy/chronytop/releases/download/{{ chronytop_release }}"
     chronytop_arch:
       x86_64: amd64
