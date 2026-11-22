@@ -1,10 +1,33 @@
 #!/bin/bash
 # {{ ansible_managed }}
+now=$(date +%s)
+{% if ts2phc_watchdog_chrony_refid | default('') %}
+
+# Without GPS, the PHC free-runs and chrony can't tell, so stop chrony selecting
+# it once ts2phc hasn't been locked (s2) for a while. Needs chrony 4.4+.
+HOLDOVER={{ ts2phc_watchdog_holdover | default(300) }}
+REFID={{ ts2phc_watchdog_chrony_refid }}
+STATE=/run/ts2phc-watchdog-noselect
+locked=$(journalctl -u ts2phc -o short-unix -n 2000 --no-pager 2>/dev/null | grep ' offset .* s2 ' | tail -1 | cut -d. -f1)
+if [ -n "$locked" ] && [ $((now - locked)) -le "$HOLDOVER" ]; then
+  chronyc selectopts "$REFID" -noselect >/dev/null
+  if [ -e "$STATE" ]; then
+    rm -f "$STATE"
+    logger -t ts2phc-watchdog "ts2phc locked again - chrony may select $REFID"
+  fi
+else
+  chronyc selectopts "$REFID" +noselect >/dev/null
+  if [ ! -e "$STATE" ]; then
+    touch "$STATE"
+    logger -t ts2phc-watchdog "ts2phc not locked for >${HOLDOVER}s (GPS lost?) - chrony won't select $REFID"
+  fi
+fi
+{% endif %}
+
 # Restart ts2phc if it is running but has not reported a PHC offset recently.
 # (A NIC reset / link renegotiation cancels its extts request and it never re-arms.)
 MAX_AGE={{ ts2phc_watchdog_max_age }}
 systemctl is-active --quiet ts2phc || exit 0
-now=$(date +%s)
 started=$(date -d "$(systemctl show -p ActiveEnterTimestamp --value ts2phc)" +%s 2>/dev/null || echo 0)
 [ $((now - started)) -lt "$MAX_AGE" ] && exit 0   # just (re)started; give it time to lock
 last=$(journalctl -u ts2phc -o short-unix -n 200 --no-pager 2>/dev/null | grep ' offset ' | tail -1 | cut -d. -f1)
