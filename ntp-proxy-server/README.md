@@ -6,7 +6,8 @@ A public stratum 2 NTP server on a VPS, synced to the Time Pi over WireGuard. It
 - **Pi isolation:** the Pi only accepts NTP over the tunnel, and never routes the VPS into its LAN.
 - **Refid:** clients see the private tunnel address as the server's refid, not the Pi's public IP.
 - **Sources:** chrony on the VPS prefers the Time Pi. It also follows Cloudflare and NIST, which flag a bad path and take over if the tunnel goes down.
-- **Hardening:** [`geerlingguy.security`](https://github.com/geerlingguy/ansible-role-security) and [`geerlingguy.firewall`](https://github.com/geerlingguy/ansible-role-firewall) lock down the VPS. The only open ports are SSH, NTP and WireGuard, and NTP is rate limited.
+- **Hardening:** [`geerlingguy.security`](https://github.com/geerlingguy/ansible-role-security) and [`geerlingguy.firewall`](https://github.com/geerlingguy/ansible-role-firewall) lock down the VPS. The only open ports are SSH, NTP and WireGuard (plus 80 and 4460 for NTS), and NTP is rate limited.
+- **NTS:** clients can authenticate the server with [NTS](https://www.rfc-editor.org/rfc/rfc8915.html), using a Let's Encrypt certificate from [`geerlingguy.certbot`](https://github.com/geerlingguy/ansible-role-certbot). A certbot deploy hook copies each renewed certificate to chrony and restarts it, since chrony only loads certificates at startup. Set `nts_enabled: false` to skip it.
 
 ## Install
 
@@ -21,9 +22,9 @@ The Time Pi should already be set up with the main playbook.
 
 2. Add a user account with `sudo` access on the VPS, and ensure an SSH key is configured.
 
-3. Point a DNS-only (not proxied) `A` record, and an `AAAA` record if the VPS has IPv6, at the VPS.
+3. Point a DNS-only (not proxied) `A` record, and an `AAAA` record if the VPS has IPv6, at the VPS. It must resolve before running the playbook, since Let's Encrypt checks it.
 
-4. Copy `example.hosts.ini` to `hosts.ini` and set the VPS's hostname and user, and the Time Pi's.
+4. Copy `example.hosts.ini` to `hosts.ini` and set the VPS's hostname (the public DNS name) and user, the Time Pi's, and `certbot_admin_email`.
 
 5. Install the required roles and run the playbook:
 
@@ -44,6 +45,7 @@ The Time Pi should already be set up with the main playbook.
    ```
    sntp ntp-01.jeffgeerling.com                                     # macOS
    sudo chronyd -Q -t 10 'server ntp-01.jeffgeerling.com iburst'    # Linux with chrony
+   sudo chronyd -Q -t 10 'server ntp-01.jeffgeerling.com iburst nts'  # Linux with chrony, over NTS
    ```
 
 After it's been stable for a few days, [add it to the NTP Pool](https://www.ntppool.org/manage) at the lowest netspeed and raise it gradually.

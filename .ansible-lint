@@ -5,3 +5,4 @@ skip_list:
 mock_roles:
   - geerlingguy.security
   - geerlingguy.firewall
+  - geerlingguy.certbot

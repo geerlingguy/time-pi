@@ -2,3 +2,6 @@
 wg_port: 51820
 wg_pi_address: 10.99.0.1
 wg_proxy_address: 10.99.0.2
+
+# NTS (authenticated NTP) on the proxy, with a Let's Encrypt certificate for its hostname.
+nts_enabled: true

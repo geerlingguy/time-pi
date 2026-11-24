@@ -2,3 +2,4 @@
 roles:
   - name: geerlingguy.security
   - name: geerlingguy.firewall
+  - name: geerlingguy.certbot
