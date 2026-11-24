@@ -22,7 +22,7 @@ The Time Pi should already be set up with the main playbook.
 
 2. Add a user account with `sudo` access on the VPS, and ensure an SSH key is configured.
 
-3. Point a DNS-only (not proxied) `A` record, and an `AAAA` record if the VPS has IPv6, at the VPS. It must resolve before running the playbook, since Let's Encrypt checks it.
+3. Point a DNS-only (not proxied) `A` record, and an `AAAA` record if the VPS has IPv6, at the VPS. With NTS enabled, it must resolve before running the playbook, since Let's Encrypt checks it.
 
 4. Copy `example.hosts.ini` to `hosts.ini` and set the VPS's hostname (the public DNS name) and user, the Time Pi's, and `certbot_admin_email`.
 
