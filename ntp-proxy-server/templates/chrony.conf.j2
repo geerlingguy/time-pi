@@ -18,3 +18,11 @@ allow
 ratelimit interval 1 burst 16
 # 256 MiB: enough to track about 2 million client IPs for rate limiting.
 clientloglimit 268435456
+{% if nts_enabled %}
+
+# NTS for clients that ask for it. The certificate is copied here by a certbot deploy hook.
+ntsservercert /etc/chrony/nts/fullchain.pem
+ntsserverkey /etc/chrony/nts/privkey.pem
+# Keeps NTS cookie keys across restarts, so clients don't need a new key exchange.
+ntsdumpdir /var/lib/chrony
+{% endif %}

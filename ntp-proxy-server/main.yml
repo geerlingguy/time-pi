@@ -35,7 +35,13 @@
   vars:
     security_autoupdate_reboot: "false"
     firewall_disable_ufw: true
-    firewall_allowed_tcp_ports: ["22"]
+    # 80 is for Let's Encrypt's HTTP challenge, only listened on by certbot; 4460 is NTS key exchange.
+    firewall_allowed_tcp_ports: "{{ ['22'] + (['80', '4460'] if nts_enabled else []) }}"
+    certbot_create_if_missing: true
+    certbot_create_standalone_stop_services: []
+    certbot_auto_renew_user: root
+    certbot_certs:
+      - domains: ["{{ inventory_hostname }}"]
     firewall_allowed_udp_ports: ["123", "{{ wg_port }}"]
     # Don't track NTP clients in conntrack, so heavy pool traffic can't fill the table.
     firewall_additional_rules:
@@ -83,6 +89,36 @@
           - cron
           - vnstat
         state: present
+
+    # Applies the firewall rules now, so Let's Encrypt can reach port 80.
+    - name: Run pending handlers.
+      ansible.builtin.meta: flush_handlers
+
+    - name: Set up NTS certificate.
+      when: nts_enabled
+      block:
+        - name: Ensure certbot deploy hook directory exists.
+          ansible.builtin.file:
+            path: /etc/letsencrypt/renewal-hooks/deploy
+            state: directory
+            mode: 0755
+
+        - name: Install certbot deploy hook for chrony.
+          ansible.builtin.copy:
+            src: files/chrony-nts-certs.sh
+            dest: /etc/letsencrypt/renewal-hooks/deploy/chrony-nts-certs
+            mode: 0755
+
+        - name: Get certificate from Let's Encrypt.
+          ansible.builtin.include_role:
+            name: geerlingguy.certbot
+
+        - name: Copy certificate for chrony.
+          ansible.builtin.command: /etc/letsencrypt/renewal-hooks/deploy/chrony-nts-certs
+          args:
+            creates: /etc/chrony/nts/fullchain.pem
+          environment:
+            RENEWED_LINEAGE: "/etc/letsencrypt/live/{{ inventory_hostname }}"
 
     - name: Configure chrony.
       ansible.builtin.template:
