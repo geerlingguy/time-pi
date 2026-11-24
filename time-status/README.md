@@ -47,6 +47,7 @@ Environment variables (set in the systemd unit):
   - `DASH_TITLE` / `DASH_SUBTITLE`: page heading and tagline
   - `DASH_RETENTION`: days of history to keep (default `90`)
   - `DASH_DB`: SQLite path (default `/var/lib/time-status/time-status.db`)
+  - `DASH_POOL`: space-separated NTP Pool server addresses whose scores are shown in the footer, checked every 5 minutes (the `time_status_pool_servers` playbook variable)
 
 To show a block of text below the stats (e.g. NTP client instructions), put an HTML snippet in `info.html` next to `time_status.py` (the `time_status_info` playbook variable), and restart the service. Scripts and styles in it are blocked by the page's CSP.
 
@@ -54,6 +55,7 @@ To show a block of text below the stats (e.g. NTP client instructions), put an H
 
 The page is meant to face the internet, so it exposes as little as possible:
 
+  - **Outbound requests:** only to `www.ntppool.org`, and only if `DASH_POOL` is set.
   - **Fixed routes only:** `/`, `/api/status` and `/api/history?range=1h|24h|7d|30d` (exact match), `GET`/`HEAD` only. No static file serving, no parameters reach SQL (all queries are parameterized).
   - **Nothing that leaks location or the LAN:** gpsd latitude/longitude are never read, per-satellite PRN/azimuth/elevation are dropped (with a timestamp they'd reveal the antenna's location), and private-range NTP source addresses show as "LAN server N". Host uptime isn't published.
   - **No chrony admin access:** chronyc talks to the read-only UDP monitoring port, never chronyd's admin socket, so even a compromised dashboard can't change the time being served. (This is why there's no NTP requests/s stat; `serverstats` needs the admin socket.)

@@ -18,6 +18,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 
@@ -27,11 +28,14 @@ TITLE = os.environ.get("DASH_TITLE", os.uname().nodename)
 SUBTITLE = os.environ.get("DASH_SUBTITLE", "Stratum 1 NTP server, disciplined by GNSS")
 RETENTION_DAYS = int(os.environ.get("DASH_RETENTION", "90"))
 GPSD = ("127.0.0.1", int(os.environ.get("DASH_GPSD_PORT", "2947")))
+POOL_IPS = [str(ipaddress.ip_address(a)) for a in os.environ.get("DASH_POOL", "").split()]
 DB_PATH = os.environ.get("DASH_DB", os.path.join(os.environ.get("STATE_DIRECTORY", "."), "time-status.db"))
 POLL = 15           # seconds between chrony/systemd polls
 STALE = 10          # seconds before a servo or GNSS reading counts as stale
 REFRESH = 30        # seconds between precomputing DB-backed API results
 ADEV_EVERY = 600    # seconds between Allan deviation updates
+POOL_EVERY = 300    # seconds between NTP Pool score checks
+POOL_UA = "time-status (+https://github.com/geerlingguy/time-pi)"
 ADEV_BRIDGE = 10    # missing minutes bridged by holding the last frequency, instead of splitting the data
 MAX_CONN = 32       # concurrent HTTP connections; extras are dropped
 MAX_LINE = 1 << 16  # longest gpsd line accepted
@@ -46,7 +50,7 @@ SERVO_SRC = {"ts2phc": "phc", "phc2sys": "sys"}
 HOSTNAME_RE = re.compile(r"[A-Za-z0-9.-]{1,64}")
 
 lock = threading.Lock()
-live = {"gnss": {}, "sats": [], "servo": {}, "chrony": None, "peers": [], "adev": {}}
+live = {"gnss": {}, "sats": [], "servo": {}, "chrony": None, "peers": [], "adev": {}, "pool": []}
 acc = {}  # (minute, src) -> per-minute servo accumulator
 db_lock = threading.Lock()
 cache = {}  # precomputed by refresher()
@@ -377,6 +381,27 @@ def poller():
         time.sleep(POLL - time.time() % POLL)
 
 
+def pool_poller():
+    """Fetch each address's overall NTP Pool score."""
+    while POOL_IPS:
+        scores = []
+        for ip in POOL_IPS:
+            score = None
+            try:
+                url = f"https://www.ntppool.org/scores/{ip}/json?monitor=recentmedian&limit=1"
+                req = urllib.request.Request(url, headers={"User-Agent": POOL_UA})
+                with urllib.request.urlopen(req, timeout=10) as r:  # nosec B310 - fixed https URL, validated IP
+                    monitors = json.loads(r.read(1 << 16)).get("monitors") or []
+                score = next((finite(m.get("score"), -1000, 1000) for m in monitors
+                              if m.get("name") == "recentmedian"), None)
+            except (OSError, ValueError, AttributeError) as e:
+                log(f"pool score {ip}: {e}")
+            scores.append({"ip": ip, "v6": ":" in ip, "score": score})
+        with lock:
+            live["pool"] = scores
+        time.sleep(POOL_EVERY)
+
+
 # ------------------------------------------------------------------- api ----
 
 def refresher():
@@ -437,7 +462,7 @@ def api_status():
                      "via": v["via"]} for k, v in live["servo"].items()}
         gnss = gnss_summary()
         sats = [{"g": s["g"], "ss": s["ss"], "u": s["u"]} for s in live["sats"]] if gnss["seen"] or gnss["used"] else []
-        chrony, peers, adev = live["chrony"], live["peers"], live["adev"]
+        chrony, peers, adev, pool = live["chrony"], live["peers"], live["adev"], live["pool"]
         gnss_age = now - live["gnss"].get("ts", 0)
     names = display_names(peers)
     peers = [{**{k: v for k, v in p.items() if k not in ("lastrx", "addr")}, "name": names[p["name"]]} for p in peers]
@@ -461,7 +486,7 @@ def api_status():
         status = ("warn", "Holdover")
     return {"status": status[0], "status_text": status[1], "servo": servo, "gnss": gnss, "sats": sats,
             "chrony": chrony, "peers": peers, "sources": sources, "temp": read_temp(),
-            "stats": cached("stats", window_stats), "adev": adev, "now": time.time()}
+            "stats": cached("stats", window_stats), "adev": adev, "pool": pool, "now": time.time()}
 
 
 def api_history(span):
@@ -583,7 +608,7 @@ def main():
     state["db"] = sqlite3.connect(DB_PATH, check_same_thread=False)
     state["db"].execute("PRAGMA journal_mode=WAL")
     state["db"].executescript(SCHEMA)
-    for fn in (gpsd_reader, journal_reader, poller, adev_worker, refresher):
+    for fn in (gpsd_reader, journal_reader, poller, adev_worker, refresher, pool_poller):
         threading.Thread(target=fn, daemon=True).start()
     server = Server((BIND, PORT), Handler)
     log(f"time-status on {BIND or '*'}:{PORT}, db {DB_PATH}")

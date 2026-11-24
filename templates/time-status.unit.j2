@@ -8,6 +8,7 @@ ExecStart=/usr/bin/python3 -I /opt/time-status/time_status.py
 Environment=DASH_PORT={{ time_status_port }}
 Environment="DASH_TITLE={{ time_status_title }}"
 Environment="DASH_SUBTITLE={{ time_status_subtitle }}"
+Environment="DASH_POOL={{ time_status_pool_servers | default([]) | join(' ') }}"
 Restart=on-failure
 RestartSec=5
 

@@ -171,6 +171,7 @@ footer { margin-top: 2.5rem; padding: 1.25rem 0 2rem; border-top: .4rem dotted v
 
   <footer>
     <div class="services" id="services"></div>
+    <div class="services" id="pool"></div>
     <div class="muted">Updates every 30 seconds · <a href="/api/status">JSON</a> · <a href="https://github.com/geerlingguy/time-pi">time-pi</a></div>
   </footer>
 </main>
@@ -362,6 +363,11 @@ function renderPeers(peers) {
 function renderFooter(s) {
   $("services").replaceChildren(...s.sources.map(v => el("span", {}, el("span", {class: "dot " + (v.ok ? "ok" : "bad")}),
     tip(v.name, HELP[v.name]), v.ok ? "" : el("span", {class: "muted"}, "no data"))));
+  // The pool only hands out servers scoring above 10.
+  $("pool").replaceChildren(...(s.pool || []).map(p => el("span", {},
+    el("span", {class: "dot " + (p.score == null ? "" : p.score > 10 ? "ok" : p.score > 0 ? "warn" : "bad")}),
+    el("a", {href: "https://www.ntppool.org/scores/" + p.ip, title: p.ip}, "NTP Pool " + (p.v6 ? "IPv6" : "IPv4")),
+    el("span", {class: "muted"}, p.score == null ? "no score yet" : p.score.toFixed(1)))));
 }
 
 // --- charts ---
