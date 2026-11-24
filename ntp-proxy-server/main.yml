@@ -90,6 +90,10 @@
           - vnstat
         state: present
 
+    # Applies the firewall rules now, so Let's Encrypt can reach port 80.
+    - name: Run pending handlers.
+      ansible.builtin.meta: flush_handlers
+
     - name: Set up NTS certificate.
       when: nts_enabled
       block:
