@@ -10,7 +10,7 @@ galmon_remark: ''
 # Receiver over USB.
 galmon_port: /dev/serial/by-id/usb-u-blox_AG_-_www.u-blox.com_u-blox_GNSS_receiver-if00
 galmon_constellations: --gps --galileo --glonass --beidou
-# e.g. '--fuzz-position 100' to blur the published position.
+# e.g. '--fuzz-position 100' to blur the position before it's sent.
 galmon_extra_opts: ''
 
 # Git ref of berthubert/galmon to build.
