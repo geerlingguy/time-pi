@@ -52,5 +52,5 @@ Within a few minutes, your station should appear on [galmon.eu/observers.html](h
 ## Notes
 
 - ubxtool reconfigures the receiver (non-persistently) every time it starts, and disables NMEA on USB, so don't share the receiver with gpsd.
-- Your station's position is published. Add `--fuzz-position <meters>` to `galmon_extra_opts` to blur it.
+- Galmon rounds your station's position server-side before publishing it. To also blur it before it's sent, add `--fuzz-position <meters>` to `galmon_extra_opts`.
 - To upgrade, rerun the playbook. It pulls `galmon_version`, then rebuilds and restarts ubxtool if anything changed.
