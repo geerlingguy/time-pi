@@ -206,10 +206,15 @@ def build(station, remote, prev):
 
 
 def tui(scr, station, remote):
-    curses.curs_set(0)
-    curses.use_default_colors()
-    for pair, color in ((OK, curses.COLOR_GREEN), (WARN, curses.COLOR_YELLOW), (BAD, curses.COLOR_RED)):
-        curses.init_pair(pair, color, -1)
+    # Some terminfo entries (e.g. over SSH) lack cursor visibility or colors.
+    try:
+        curses.curs_set(0)
+    except curses.error:
+        pass
+    if curses.has_colors():
+        curses.use_default_colors()
+        for pair, color in ((OK, curses.COLOR_GREEN), (WARN, curses.COLOR_YELLOW), (BAD, curses.COLOR_RED)):
+            curses.init_pair(pair, color, -1)
     scr.timeout(LOCAL_EVERY * 1000)
     prev = {}
     while True:
@@ -217,7 +222,7 @@ def tui(scr, station, remote):
         scr.erase()
         rows, cols = scr.getmaxyx()
         for y, (text, color) in enumerate(lines[:rows - 1]):
-            attr = curses.color_pair(color) if color else curses.A_BOLD if text.isupper() else 0
+            attr = curses.color_pair(color) if color and curses.has_colors() else curses.A_BOLD if text.isupper() else 0
             scr.addnstr(y, 0, text, cols - 1, attr)
         scr.addnstr(rows - 1, 0, "q quit  r refresh galmon.eu", cols - 1, curses.A_DIM)
         scr.refresh()
