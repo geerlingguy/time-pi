@@ -257,6 +257,7 @@ An example configuration for a slave/client node is set up in `ptp-client-node.y
   - [Time Status page](./time-status/README.md) (public NTP/GNSS status, enable with `time_status_enabled`)
   - [chronytop](https://github.com/geerlingguy/chronytop) (TUI dashboard, run `sudo chronytop`; disable with `chronytop_install: false`)
   - [NTP Proxy Server](./ntp-proxy-server/README.md) (public NTP from a VPS synced to the Time Pi over WireGuard)
+  - [Galmon GNSS Station](./galmon-gnss/README.md) (feed raw GNSS data to galmon.eu from a dedicated Pi)
   - [Chrony Dashboard](./chrony-dashboard/README.md)
   - [Fan Control](./fan-control/README.md)
 

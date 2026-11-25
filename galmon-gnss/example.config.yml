@@ -1,0 +1,20 @@
+---
+# Station ID and destination from the Galmon project (don't pick your own).
+galmon_station: ''
+galmon_destination: ''
+
+# Shown on https://galmon.eu/observers.html.
+galmon_owner: ''
+galmon_remark: ''
+
+# Receiver over USB.
+galmon_port: /dev/serial/by-id/usb-u-blox_AG_-_www.u-blox.com_u-blox_GNSS_receiver-if00
+galmon_constellations: --gps --galileo --glonass --beidou
+# e.g. '--fuzz-position 100' to blur the published position.
+galmon_extra_opts: ''
+
+# Git ref of berthubert/galmon to build.
+galmon_version: master
+
+# Reboot if the Pi hangs (0 disables).
+galmon_watchdog_sec: 15

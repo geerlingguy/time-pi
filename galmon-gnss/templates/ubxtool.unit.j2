@@ -1,0 +1,24 @@
+[Unit]
+Description=Galmon ubxtool
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+ExecStart=/usr/local/bin/ubxtool --wait --port {{ galmon_port }} \
+  --station {{ galmon_station }} --destination {{ galmon_destination }} \
+  --owner "{{ galmon_owner }}" --remark "{{ galmon_remark }}" \
+  {{ galmon_constellations }} {{ galmon_extra_opts }}
+Restart=always
+RestartSec=5
+
+# Throwaway unprivileged user with serial port access.
+DynamicUser=yes
+SupplementaryGroups=dialout
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target
