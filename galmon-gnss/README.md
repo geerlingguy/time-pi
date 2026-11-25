@@ -51,6 +51,15 @@ sudo systemctl start ubxtool
 
 Within a few minutes, your station should appear on [galmon.eu/observers.html](https://galmon.eu/observers.html). If it doesn't, check that outbound TCP port 29603 is open: `nc -vz <destination> 29603`.
 
+## Monitoring
+
+Run `galmontop` on the Pi for a live dashboard (`galmontop --once` prints it once):
+
+- **Local:** ubxtool's service state, uptime and restarts; the upload connection to Galmon (bytes acknowledged, rate, RTT, retransmits); and the signals ubxtool last logged per constellation.
+- **galmon.eu:** what Galmon's server sees for your station, from [observers.json](https://galmon.eu/observers.json), refreshed every minute: when it last heard from you, clock offset and accuracy, and each satellite's signal strength, elevation, azimuth, pseudorange residual, quality, and whether it's used in the fix.
+
+The station ID comes from the running ubxtool; pass `--station <id>` to override it.
+
 ## Notes
 
 - ubxtool reconfigures the receiver (non-persistently) every time it starts, and disables NMEA on USB, so don't share the receiver with gpsd.
