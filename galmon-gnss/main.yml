@@ -80,6 +80,12 @@
         enabled: true
         daemon_reload: true
 
+    - name: Install galmontop dashboard.
+      ansible.builtin.copy:
+        src: files/galmontop.py
+        dest: /usr/local/bin/galmontop
+        mode: 0755
+
     - name: Ensure systemd config directory exists.
       ansible.builtin.file:
         path: /etc/systemd/system.conf.d
