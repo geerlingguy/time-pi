@@ -43,7 +43,7 @@
 
     - name: Check out galmon.
       ansible.builtin.git:
-        repo: https://github.com/berthubert/galmon.git
+        repo: "{{ galmon_repo }}"
         dest: /opt/galmon
         version: "{{ galmon_version }}"
         recursive: true

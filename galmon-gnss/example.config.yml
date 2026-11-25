@@ -13,8 +13,11 @@ galmon_constellations: --gps --galileo --glonass --beidou
 # e.g. '--fuzz-position 100' to blur the position before it's sent.
 galmon_extra_opts: ''
 
-# Git ref of berthubert/galmon to build.
-galmon_version: master
+# Galmon repo and ref to build. The fork adds NEO-F9P (L1/L5) support; use upstream for other receivers.
+galmon_repo: https://github.com/geerlingguy/galmon.git
+galmon_version: neo-f9p
+# galmon_repo: https://github.com/berthubert/galmon.git
+# galmon_version: master
 
 # Reboot if the Pi hangs (0 disables).
 galmon_watchdog_sec: 15

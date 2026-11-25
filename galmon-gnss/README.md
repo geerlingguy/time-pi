@@ -10,6 +10,8 @@ A dedicated Raspberry Pi feeding raw GNSS data to the [Galmon](https://galmon.eu
   - The NEO-F9P is L1/L5, so the splitter must pass L5/E5a (~1176 MHz) as well as L1 (~1575 MHz).
   - Only one splitter output usually passes antenna DC bias. DC-blocked outputs should present a load so the receiver doesn't report an open antenna.
 
+Upstream ubxtool only supports the ZED-F9P's L1/L2 signals and exits on a NEO-F9P with `Got nack on F9P GNSS setting`, so `example.config.yml` builds from [a fork](https://github.com/geerlingguy/galmon/tree/neo-f9p) with NEO-F9P support. For other receivers, set `galmon_repo` and `galmon_version` back to upstream.
+
 Any F9 receiver tracks all four constellations at once. Older u-blox 8 receivers can't; see [Operator.md](https://github.com/berthubert/galmon/blob/master/Operator.md).
 
 ## Install
@@ -53,4 +55,4 @@ Within a few minutes, your station should appear on [galmon.eu/observers.html](h
 
 - ubxtool reconfigures the receiver (non-persistently) every time it starts, and disables NMEA on USB, so don't share the receiver with gpsd.
 - Galmon rounds your station's position server-side before publishing it. To also blur it before it's sent, add `--fuzz-position <meters>` to `galmon_extra_opts`.
-- To upgrade, rerun the playbook. It pulls `galmon_version`, then rebuilds and restarts ubxtool if anything changed.
+- To upgrade, rerun the playbook. It pulls `galmon_version` from `galmon_repo`, then rebuilds and restarts ubxtool if anything changed.
