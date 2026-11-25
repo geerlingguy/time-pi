@@ -14,7 +14,8 @@ from datetime import datetime, timezone
 OBSERVERS_URL = "https://galmon.eu/observers.json"
 REMOTE_EVERY = 60
 LOCAL_EVERY = 2
-GNSS = {0: ("GPS", "G"), 1: ("SBAS", "S"), 2: ("Galileo", "E"), 3: ("BeiDou", "C"), 5: ("QZSS", "J"), 6: ("GLONASS", "R")}
+GNSS = {0: ("GPS", "G"), 1: ("SBAS", "S"), 2: ("Galileo", "E"), 3: ("BeiDou", "C"),
+        5: ("QZSS", "J"), 6: ("GLONASS", "R")}
 OK, WARN, BAD = 1, 2, 3
 
 
