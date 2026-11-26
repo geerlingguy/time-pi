@@ -3,6 +3,7 @@
 import argparse
 import curses
 import json
+import math
 import re
 import subprocess  # nosec B404
 import threading
@@ -17,6 +18,10 @@ LOCAL_EVERY = 2
 GNSS = {0: ("GPS", "G"), 1: ("SBAS", "S"), 2: ("Galileo", "E"), 3: ("BeiDou", "C"),
         5: ("QZSS", "J"), 6: ("GLONASS", "R")}
 OK, WARN, BAD = 1, 2, 3
+# Colors match galmon.eu's sky plot; curses pair number is 10 + gnssid.
+# Offsets to try, in order, when a satellite label would overlap another.
+NUDGES = ((0, -1), (0, 0), (0, -2), (-1, -1), (1, -1), (0, 2), (0, -4), (-1, 2), (1, 2), (-1, -4), (1, -4))
+GNSS_COLORS = {0: curses.COLOR_GREEN, 2: curses.COLOR_BLUE, 3: curses.COLOR_RED, 6: curses.COLOR_YELLOW}
 
 
 def run(*cmd):
@@ -181,7 +186,7 @@ def remote_lines(station, remote):
     if not remote.data:
         msg = f"  couldn't fetch {OBSERVERS_URL}: {remote.error}" if remote.error else "  fetching..."
         return lines + [(msg, BAD if remote.error else 0)]
-    obs = next((o for o in remote.data if str(o.get("id")) == str(station)), None)
+    obs = find_observer(station, remote)
     if not obs:
         return lines + [(f"  station {station} not in observers.json (yet)", BAD)]
 
@@ -206,7 +211,107 @@ def build(station, remote, prev):
     return [(header, 0), ("", 0)] + local_lines(props, opts, prev) + [("", 0)] + remote_lines(station, remote)
 
 
-def tui(scr, station, remote):
+def find_observer(station, remote):
+    return next((o for o in remote.data or [] if str(o.get("id")) == str(station)), None)
+
+
+def best_signals(svs):
+    """Return one entry per satellite: its strongest signal, marked used if any signal is used."""
+    sats = {}
+    for sv in svs:
+        key = (sv.get("gnss"), sv.get("sv"))
+        best = sats.get(key)
+        if not best or sv.get("db", 0) > best.get("db", 0):
+            sats[key] = dict(sv, used=sv.get("used") or (best or {}).get("used"))
+        elif sv.get("used"):
+            best["used"] = True
+    return sats
+
+
+def free(grid, y, x, width):
+    """Return whether a label (with a one-cell margin) fits at y, x without covering another label."""
+    rows, cols = len(grid), len(grid[0]) if grid else 0
+    return all(0 <= y < rows and 0 <= x + i < cols and grid[y][x + i][1] in (None, "ring")
+               for i in range(-1, width + 1))
+
+
+def sky_grid(svs, rows, cols):  # pylint: disable=too-many-locals
+    """Return a polar sky plot (zenith at center, horizon at edge) as rows of [char, style] cells."""
+    grid = [[[" ", None] for _ in range(cols)] for _ in range(rows)]
+    ry = max((rows - 3) // 2, 1)
+    rx = min(ry * 2, max((cols - 8) // 2, 2))  # Terminal cells are about twice as tall as wide.
+    ry = min(ry, rx // 2)
+    cy, cx = ry + 1, rx + 4
+
+    def pos(azi, elev):
+        r, a = (90 - elev) / 90, math.radians(azi)
+        return round(cy - r * ry * math.cos(a)), round(cx + r * rx * math.sin(a))
+
+    def put(y, x, text, style):
+        for i, ch in enumerate(text):
+            if 0 <= y < rows and 0 <= x + i < cols:
+                grid[y][x + i] = [ch, style]
+
+    for elev in (0, 30, 60):
+        for azi in range(0, 360, 2):
+            put(*pos(azi, elev), "·", "ring")
+    put(cy, cx, "+", "ring")
+    for y, x, label in ((cy - ry - 1, cx, "N"), (cy, cx + rx + 2, "E"),
+                        (cy + ry + 1, cx, "S"), (cy, cx - rx - 2, "W")):
+        put(y, x, label, "label")
+
+    for (gnss, num), sv in sorted(best_signals(svs).items(), key=lambda kv: -kv[1].get("elev", 0)):
+        if sv.get("elev", -1) < 0:
+            continue
+        y, x = pos(sv.get("azi", 0), sv["elev"])
+        label = f"{GNSS.get(gnss, ('', '?'))[1]}{num:02d}"
+        # Nudge labels that would overlap another satellite's label.
+        for dy, dx in NUDGES:
+            if free(grid, y + dy, x + dx, len(label)):
+                break
+        put(y + dy, x + dx, label, ("sat", gnss, bool(sv.get("used"))))
+    return grid
+
+
+def map_header(station, remote):
+    """Return the sky view's title line and the observer's signals, if known."""
+    obs = find_observer(station, remote)
+    if not remote.data or not obs:
+        why = remote.error or ("fetching..." if not remote.data else f"station {station} not in observers.json (yet)")
+        return f"galmontop · station {station or '?'} · sky view · {why}", []
+    svs = list(obs.get("svs", {}).values())
+    return (f"galmontop · station {station} · sky view · {len(svs)} signals · "
+            f"galmon.eu data from {human_secs(time.time() - remote.fetched)} ago"), svs
+
+
+def style_attr(style):
+    """Return the curses attribute for a sky plot cell style."""
+    colors = curses.has_colors()
+    if style == "ring":
+        return curses.A_DIM
+    if style == "label":
+        return curses.A_BOLD
+    _, gnss, used = style
+    attr = curses.color_pair(10 + gnss) if colors and gnss in GNSS_COLORS else 0
+    return attr | (curses.A_BOLD if used else curses.A_DIM)
+
+
+def draw_map(scr, station, remote, rows, cols):
+    title, svs = map_header(station, remote)
+    scr.addnstr(0, 0, title, cols - 1)
+    x = 0
+    legend = [(GNSS[g][0], style_attr(("sat", g, True))) for g in (0, 2, 3, 6)]
+    for text, attr in legend + [("· bright = used in fix, dim = not used", curses.A_DIM)]:
+        if x < cols - 1:
+            scr.addnstr(1, x, text, cols - 1 - x, attr)
+        x += len(text) + 2
+    for y, row in enumerate(sky_grid(svs, rows - 3, cols - 1)):
+        for x, (ch, style) in enumerate(row):
+            if style:
+                scr.addstr(y + 2, x, ch, style_attr(style))
+
+
+def init_screen():
     # Some terminfo entries (e.g. over SSH) lack cursor visibility or colors.
     try:
         curses.curs_set(0)
@@ -216,20 +321,32 @@ def tui(scr, station, remote):
         curses.use_default_colors()
         for pair, color in ((OK, curses.COLOR_GREEN), (WARN, curses.COLOR_YELLOW), (BAD, curses.COLOR_RED)):
             curses.init_pair(pair, color, -1)
+        for gnss, color in GNSS_COLORS.items():
+            curses.init_pair(10 + gnss, color, -1)
+
+
+def tui(scr, station, remote, show_map):
+    init_screen()
     scr.timeout(LOCAL_EVERY * 1000)
     prev = {}
     while True:
-        lines = build(station, remote, prev)
         scr.erase()
         rows, cols = scr.getmaxyx()
-        for y, (text, color) in enumerate(lines[:rows - 1]):
-            attr = curses.color_pair(color) if color and curses.has_colors() else curses.A_BOLD if text.isupper() else 0
-            scr.addnstr(y, 0, text, cols - 1, attr)
-        scr.addnstr(rows - 1, 0, "q quit  r refresh galmon.eu", cols - 1, curses.A_DIM)
+        if show_map:
+            draw_map(scr, station or service()[1].get("s"), remote, rows, cols)
+        else:
+            for y, (text, color) in enumerate(build(station, remote, prev)[:rows - 1]):
+                bold = curses.A_BOLD if text.isupper() else 0
+                attr = curses.color_pair(color) if color and curses.has_colors() else bold
+                scr.addnstr(y, 0, text, cols - 1, attr)
+        footer = "q quit  m " + ("dashboard" if show_map else "sky map") + "  r refresh galmon.eu"
+        scr.addnstr(rows - 1, 0, footer, cols - 1, curses.A_DIM)
         scr.refresh()
         key = scr.getch()
         if key in (ord("q"), 27):
             return
+        if key == ord("m"):
+            show_map = not show_map
         if key == ord("r"):
             threading.Thread(target=remote.fetch, daemon=True).start()
 
@@ -238,15 +355,23 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--station", help="station ID (default: from the running ubxtool)")
     parser.add_argument("--once", action="store_true", help="print once and exit")
+    parser.add_argument("--map", action="store_true", help="start in (or with --once, print) the sky map")
     args = parser.parse_args()
     remote = Remote()
     if args.once:
         remote.fetch()
-        for text, _ in build(args.station, remote, {}):
-            print(text)
+        if args.map:
+            station = args.station or service()[1].get("s")
+            title, svs = map_header(station, remote)
+            print(title)
+            for row in sky_grid(svs, 30, 100):
+                print("".join(ch for ch, _ in row).rstrip())
+        else:
+            for text, _ in build(args.station, remote, {}):
+                print(text)
         return
     remote.start()
-    curses.wrapper(tui, args.station, remote)
+    curses.wrapper(tui, args.station, remote, args.map)
 
 
 if __name__ == "__main__":
