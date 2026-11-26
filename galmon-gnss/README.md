@@ -53,6 +53,8 @@ Within a few minutes, your station should appear on [galmon.eu/observers.html](h
 
 ## Monitoring
 
+<p align="center"><img alt="galmontop map view" src="/resources/galmontop-map-view.png" height="auto" width="600"></p>
+
 Run `galmontop` on the Pi for a live dashboard (`galmontop --once` prints it once):
 
 - **Local:** ubxtool's service state, uptime and restarts; the upload connection to Galmon (bytes acknowledged, rate, RTT, retransmits); and the signals ubxtool last logged per constellation.
