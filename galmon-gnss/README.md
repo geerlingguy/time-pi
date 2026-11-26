@@ -58,6 +58,8 @@ Run `galmontop` on the Pi for a live dashboard (`galmontop --once` prints it onc
 - **Local:** ubxtool's service state, uptime and restarts; the upload connection to Galmon (bytes acknowledged, rate, RTT, retransmits); and the signals ubxtool last logged per constellation.
 - **galmon.eu:** what Galmon's server sees for your station, from [observers.json](https://galmon.eu/observers.json), refreshed every minute: when it last heard from you, clock offset and accuracy, and each satellite's signal strength, elevation, azimuth, pseudorange residual, quality, and whether it's used in the fix.
 
+Press `m` to switch to a sky map: a polar plot of every satellite galmon.eu reports for your station (zenith in the center, horizon at the edge), colored by constellation, bright if used in the fix. Press `m` again to go back. `galmontop --map` starts on the map, and `galmontop --once --map` prints it once.
+
 The station ID comes from the running ubxtool; pass `--station <id>` to override it.
 
 ## Notes
