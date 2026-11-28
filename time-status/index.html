@@ -138,7 +138,7 @@ footer { margin-top: 2.5rem; padding: 1.25rem 0 2rem; border-top: .4rem dotted v
   </div>
   <div class="chart">
     <div class="head"><h3>Clock offset vs GNSS</h3><div class="legend" id="legend-servo"></div></div>
-    <div class="muted small">PHC vs GPS PPS (ts2phc) and system clock vs PHC (phc2sys, or chrony's PHC refclock); line is the mean, band is min–max. These are in-loop servo residuals, not absolute accuracy vs UTC.</div>
+    <div class="muted small" id="note-servo">PHC vs GPS PPS (ts2phc) and system clock vs PHC (phc2sys, or chrony's PHC refclock); line is the mean, band is min–max. These are in-loop servo residuals, not absolute accuracy vs UTC.</div>
     <div class="plot" id="plot-servo"></div>
   </div>
   <div class="chart">
@@ -161,7 +161,7 @@ footer { margin-top: 2.5rem; padding: 1.25rem 0 2rem; border-top: .4rem dotted v
   </div>
   <div class="chart">
     <div class="head"><h3><span tabindex="0" data-tip="How much each oscillator's rate wanders when averaged over time τ. Lower is steadier: 1×10⁻⁹ means its rate varies by about 1 ns per second.">Frequency stability (Allan deviation)</span></h3><div class="legend" id="legend-adev"></div></div>
-    <div class="muted small">Overlapping ADEV over all stored history, from each servo's per-minute frequency corrections against GPS. Only the part well above the dashed GPS PPS noise floor describes the oscillator itself.</div>
+    <div class="muted small" id="note-adev">Overlapping ADEV over all stored history, from each servo's per-minute frequency corrections against GPS. Only the part well above the dashed GPS PPS noise floor describes the oscillator itself.</div>
     <div class="plot" id="plot-adev"></div>
   </div>
 
@@ -182,10 +182,18 @@ const $ = id => document.getElementById(id);
 const cssVar = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 const GNSS = {0: "GPS", 1: "SBAS", 2: "Galileo", 3: "BeiDou", 4: "IMES", 5: "QZSS", 6: "GLONASS", 7: "NavIC"};
 const GNSS_COLOR = {0: "--s1", 2: "--s2", 3: "--s3", 6: "--s4", 5: "--s5", 1: "--s6", 7: "--s7", 4: "--s8"};
-const SERVO = {phc: ["PHC vs PPS", "--s1", "PHC"], sys: ["System vs PHC", "--s2", "System"]};
+const SERVO_PHC = {phc: ["PHC vs PPS", "--s1", "PHC"], sys: ["System vs PHC", "--s2", "System"]};
+const SERVO_PPS = {sys: ["System clock vs PPS", "--s1", "Clock"]};
+// status.refclock is set on a server with no PHC, where chrony steers the system clock straight from a GPS refclock (PPS, SOCK, SHM).
+const servos = () => status?.refclock ? SERVO_PPS : SERVO_PHC;
 const HELP = {
   phc: "How far the network card's clock (PHC) is from the GPS once-a-second pulse (PPS), as its own servo sees it. Closer to 0 is better, but it leaves out antenna, cable and receiver delays, so true error vs UTC is larger.",
   sys: "How far the Pi's own clock, the one NTP hands out, is from the network card's clock. Closer to 0 is better.",
+  sysPps: "How far the Pi's own clock, the one NTP hands out, is from the GPS once-a-second pulse (PPS), as chrony sees it. Closer to 0 is better, but it leaves out antenna, cable and receiver delays, so true error vs UTC is larger.",
+  freqPps: "How much the Pi's crystal is sped up or slowed down to match GPS, in parts per million. 1 ppm is 86 ms a day.",
+  refPps: "ref is the source chrony follows (the GPS pulse, when locked). leap says whether a leap second is coming.",
+  tempPps: "Pi CPU temperature, a rough stand-in for its crystal's temperature, which shifts its frequency.",
+  chronyRef: "chrony is getting samples from its GPS reference clock and reading the Pi's clock against it, updated in the last 25 seconds.",
   freq: "How much the network card's crystal is sped up or slowed down to match GPS, in parts per billion.",
   sd: "σ (sigma) is how much the offset wiggles around its average. Lower means steadier.",
   mean: "the average offset. Should sit near 0; a steady non-zero value is a small bias.",
@@ -281,18 +289,22 @@ function renderTiles(s) {
   const fresh = x => x && x.age < (x.via === "chrony" ? 25 : 10);  // chrony refclock is read every 15 s
   const locked = s.status === "ok" ? (st.locked_since ? Math.max(0, s.now - st.locked_since) : 0) : null;
   const fix = {0: "No fix", 1: "No fix", 2: "2D fix", 3: "3D fix"}[g.fix] ?? "Fix " + g.fix;
+  const pps = !!s.refclock, vsNtp = () => tile("vs other NTP servers", median(s.peers) != null ? si(median(s.peers), true) : "—",
+                                                `median of ${goodPeers(s.peers).length} servers`, HELP.vsNtp);
   const tiles = [
-    tile("PHC offset vs PPS", fresh(phc) ? liveOff(phc.offset) : "—", "σ 1h " + si(h1.phc?.sd), HELP.phc, HELP.sd),
-    sys || h1.sys ? tile("System clock vs PHC", fresh(sys) ? liveOff(sys.offset) : "—", "σ 1h " + si(h1.sys?.sd), HELP.sys, HELP.sd)
-                  : tile("vs other NTP servers", median(s.peers) != null ? si(median(s.peers), true) : "—",
-                         `median of ${goodPeers(s.peers).length} servers`, HELP.vsNtp),
+    pps ? tile("Clock offset vs PPS", fresh(sys) ? liveOff(sys.offset) : "—", "σ 1h " + si(h1.sys?.sd), HELP.sysPps, HELP.sd)
+        : tile("PHC offset vs PPS", fresh(phc) ? liveOff(phc.offset) : "—", "σ 1h " + si(h1.phc?.sd), HELP.phc, HELP.sd),
+    pps ? vsNtp() : sys || h1.sys ? tile("System clock vs PHC", fresh(sys) ? liveOff(sys.offset) : "—", "σ 1h " + si(h1.sys?.sd), HELP.sys, HELP.sd)
+                  : vsNtp(),
     tile("Locked for", locked != null ? dur(locked) : "—", (locked != null ? "" : s.status_text + " · ") + (st["30d"].minutes < 0.9 * 43200 ? `${pct(st["30d"].avail)} of ${dur(st["30d"].minutes * 60)} recorded` : "30 days: " + pct(st["30d"].avail)), HELP.lockedFor, HELP.avail30),
     tile("Satellites", `${g.used} / ${g.seen}`, `${fix} · used / tracked`, HELP.sats, HELP.fix),
     tile("Signal", g.cno != null ? g.cno.toFixed(1) + " dB-Hz" : "—", "mean C/N₀ of used satellites", HELP.cno),
     tile("Dilution", g.tdop != null ? "TDOP " + g.tdop.toFixed(2) : "—", g.pdop != null ? "PDOP " + g.pdop.toFixed(2) : "\u00a0", HELP.tdop, g.pdop != null && HELP.pdop),
-    tile("Stratum", c ? String(c.stratum) : "—", c ? `ref ${c.ref} · leap ${c.leap.toLowerCase()}` : "chrony not responding", HELP.stratum, c && HELP.ref),
-    tile("PHC frequency", fresh(phc) ? (phc.freq > 0 ? "+" : "") + phc.freq + " ppb" : "—",
-         s.temp != null ? `SoC ${s.temp.toFixed(1)} °C` : "\u00a0", HELP.freq, s.temp != null && HELP.temp),
+    tile("Stratum", c ? String(c.stratum) : "—", c ? `ref ${c.ref} · leap ${c.leap.toLowerCase()}` : "chrony not responding", HELP.stratum, c && (pps ? HELP.refPps : HELP.ref)),
+    pps ? tile("Clock frequency", fresh(sys) ? (sys.freq > 0 ? "+" : "") + (sys.freq / 1000).toFixed(3) + " ppm" : "—",
+               s.temp != null ? `SoC ${s.temp.toFixed(1)} °C` : "\u00a0", HELP.freqPps, s.temp != null && HELP.tempPps)
+        : tile("PHC frequency", fresh(phc) ? (phc.freq > 0 ? "+" : "") + phc.freq + " ppb" : "—",
+               s.temp != null ? `SoC ${s.temp.toFixed(1)} °C` : "\u00a0", HELP.freq, s.temp != null && HELP.temp),
   ];
   $("tiles").replaceChildren(...tiles);
 }
@@ -304,7 +316,7 @@ function renderStats(st) {
   const head = w => st[w].minutes < 0.9 * SPAN[w]
     ? el("th", {}, tip(w + "*", `Only ${dur(st[w].minutes * 60)} of data in this window so far`)) : w;
   const rows = [row(["", ...wins.map(head)], true), row([el("td", {}, tip("Locked", HELP.locked)), ...wins.map(w => numCell(pct(st[w].avail)))])];
-  for (const [src, [name, , short]] of Object.entries(SERVO)) {
+  for (const [src, [name, , short]] of Object.entries(servos())) {
     if (!wins.some(w => st[w][src])) continue;
     const label = (text, help) => el("td", {}, tip(short + " " + text, `${name}: ${help}`));
     rows.push(row([label("σ", HELP.sd), ...wins.map(w => numCell(si(st[w][src]?.sd)))]));
@@ -361,7 +373,7 @@ function renderPeers(peers) {
 
 function renderFooter(s) {
   $("services").replaceChildren(...s.sources.map(v => el("span", {}, el("span", {class: "dot " + (v.ok ? "ok" : "bad")}),
-    tip(v.name, HELP[v.name]), v.ok ? "" : el("span", {class: "muted"}, "no data"))));
+    tip(v.name, s.refclock && v.name === "chrony " + s.refclock ? HELP.chronyRef : HELP[v.name]), v.ok ? "" : el("span", {class: "muted"}, "no data"))));
 }
 
 // --- charts ---
@@ -464,10 +476,11 @@ function loglog(box, series) {
 }
 let adevKey = "";
 function renderAdev(force) {
-  const a = status?.adev ?? {}, sd = status?.stats?.["24h"]?.phc?.sd, key = JSON.stringify([a, sd]);
+  const pps = !!status?.refclock, a = status?.adev ?? {}, sd = status?.stats?.["24h"]?.[pps ? "sys" : "phc"]?.sd, key = JSON.stringify([a, sd]);
   if (!force && key === adevKey) return;  // re-render only on new data, so an open tooltip survives polling
   adevKey = key;
-  const NAMES = {phc: ["NIC oscillator (PHC)", "--s1"], sys: ["Pi oscillator (system clock)", "--s2"]};
+  const NAMES = pps ? {sys: ["Pi oscillator (system clock)", "--s1"]}
+                    : {phc: ["NIC oscillator (PHC)", "--s1"], sys: ["Pi oscillator (system clock)", "--s2"]};
   const series = Object.entries(NAMES).filter(([k]) => a[k]?.length).map(([k, [name, color]]) => ({name, color, pts: a[k]}));
   if (series.length && sd) series.push({name: "GPS PPS noise floor (est.)", color: "--muted", dash: true,
     pts: series[0].pts.map(([tau]) => [tau, Math.sqrt(3) * sd / tau])});  // white phase noise: √3·σ/τ
@@ -480,7 +493,7 @@ function legend(id, series) {
 function renderHistory() {
   if (!history) return;
   const h = history, step = h.step;
-  const servo = Object.entries(SERVO).filter(([k]) => h.servo[k]).map(([k, [name, color]]) => ({name, color, pts: h.servo[k], band: true, gap: step * 1.5}));
+  const servo = Object.entries(servos()).filter(([k]) => h.servo[k]).map(([k, [name, color]]) => ({name, color, pts: h.servo[k], band: true, gap: step * 1.5}));
   plot($("plot-servo"), servo, h.since, h.now);
   legend("legend-servo", servo.length > 1 ? servo : []);
   const falsetickers = new Set((status?.peers ?? []).filter(p => p.state === "x").map(p => p.name));
@@ -496,7 +509,13 @@ async function loadStatus() {
     const r = await fetch("/api/status", {cache: "no-store"});
     const t1 = Date.now(), s = await r.json();
     if (t1 - t0 <= bestRtt) { bestRtt = t1 - t0; clockOffset = s.now * 1000 - (t0 + t1) / 2; }
+    const first = !status;
     status = s;
+    if (first && s.refclock) {  // no PHC: the charts show the system clock against the refclock
+      $("note-servo").textContent = "System clock vs GPS, from chrony's reference clock (" + s.refclock + "); line is the mean, band is min–max. These are in-loop servo residuals, not absolute accuracy vs UTC.";
+      $("note-adev").textContent = "Overlapping ADEV over all stored history, from chrony's per-minute frequency corrections of the system clock against GPS. Only the part well above the dashed GPS PPS noise floor describes the oscillator itself.";
+      renderHistory();
+    }
     $("status").className = "pill " + s.status;
     $("status-text").textContent = s.status_text;
     renderTiles(s); renderStats(s.stats); renderAdev(); renderConstellations(s); renderPeers(s.peers); renderFooter(s);
